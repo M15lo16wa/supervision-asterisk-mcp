@@ -1,0 +1,16 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks: [supervision-net]
+
+volumes:
+  ollama_data:
+
+networks:
+  supervision-net:
+    external: true
