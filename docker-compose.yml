@@ -1,0 +1,14 @@
+services:
+  mcp-server:
+    build: ./mcp-server
+    env_file: ./mcp-server/.env
+    environment:
+      ASTERISK_ARI_HOST: ${ASTERISK_HOST}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on: [keycloak]
+    networks: [supervision-net]
+
+networks:
+  supervision-net:
+    external: true
