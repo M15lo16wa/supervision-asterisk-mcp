@@ -35,6 +35,15 @@ pip install -r requirements.txt
 pip show fastmcp
 ```
 
+Configurer l'environnement du serveur MCP :
+```bash
+cp .env.example .env
+nano .env
+export PYTHONPATH=$(pwd)
+export $(cat .env | xargs)
+python3 -m src.interfaces.mcp_tools
+```
+
 Vérifier l'installation (optionnel) :
 ```bash
 cd ~/Projets/supervision-asterisk-mcp/mcp-server
