@@ -29,6 +29,20 @@ docker-compose up -d
 Démarrer le serveur MCP :
 ```bash
 cd mcp-server
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip show fastmcp
+```
+
+Vérifier l'installation (optionnel) :
+```bash
+cd ~/Projets/supervision-asterisk-mcp/mcp-server
+source .venv/bin/activate
+pip show fastmcp
+```
+
+```bash
 docker-compose up -d
 ```
 
@@ -52,3 +66,4 @@ Le projet suit une architecture hexagonale avec deux zones :
 - Keycloak (authentification)
 - Prometheus + Grafana (monitoring)
 - Asterisk ARI (communication VoIP)
+
