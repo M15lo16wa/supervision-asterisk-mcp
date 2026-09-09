@@ -29,7 +29,7 @@ docker-compose up -d
 Démarrer le serveur MCP :
 ```bash
 cd mcp-server
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip show fastmcp
