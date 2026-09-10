@@ -1,14 +1,177 @@
+# Orchestration complète du système de supervision Asterisk via MCP.
+#
+#   docker compose up -d                       # socle : Keycloak + serveur MCP
+#   docker compose --profile asterisk up -d    # + Asterisk 22 (Module 2)
+#   docker compose --profile voice up -d       # + Ollama + pipeline vocal (Module 3)
+#   docker compose --profile monitoring up -d  # + Prometheus + Grafana
+#
+# Copier .env.example -> .env avant le premier démarrage.
+
+x-common-env: &keycloak-realm
+  KEYCLOAK_BASE_URL: http://keycloak:8080
+  KEYCLOAK_REALM: ${KEYCLOAK_REALM:-asterik}
+  KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-mcp-server}
+
 services:
+
+  # ─────────────────────────────  Module 1 : Socle  ─────────────────────────────
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: supervision-keycloak-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-keycloak}
+      POSTGRES_USER: ${POSTGRES_USER:-keycloak}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keycloak}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-keycloak}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [supervision-net]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: supervision-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${POSTGRES_DB:-keycloak}
+      KC_DB_USERNAME: ${POSTGRES_USER:-keycloak}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-keycloak}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: ${KC_HOSTNAME:-http://localhost:8080}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./keycloak/realm-export:/opt/keycloak/data/import:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [supervision-net]
+
   mcp-server:
     build: ./mcp-server
-    env_file: ./mcp-server/.env
+    container_name: supervision-mcp-server
     environment:
-      ASTERISK_ARI_HOST: ${ASTERISK_HOST}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on: [keycloak]
+      <<: *keycloak-realm
+      MCP_TRANSPORT: streamable-http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+      # Asterisk (profil `asterisk`) — sinon les outils Module 2 renvoient une erreur propre.
+      ASTERISK_HOST: ${ASTERISK_HOST:-asterisk}
+      ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
+      ASTERISK_AMI_USER: ${ASTERISK_AMI_USER:-mcp_ami}
+      ASTERISK_AMI_SECRET: ${ASTERISK_AMI_SECRET:-changeme_ami}
+      ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [supervision-net]
+
+  # ────────────────────────  Module 2 : Infrastructure VoIP  ────────────────────
+  asterisk:
+    image: andrius/asterisk:22.5.0
+    container_name: supervision-asterisk
+    profiles: [asterisk]
+    volumes:
+      - ./asterisk/config:/etc/asterisk:ro
+      - asterisk_recordings:/var/spool/asterisk/recording
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5038:5038/tcp"      # AMI
+      - "8088:8088/tcp"      # ARI / HTTP
+      - "10000-10099:10000-10099/udp"  # RTP
+    networks: [supervision-net]
+
+  # ─────────────────────  Module 3 : Pipeline vocal S2S local  ──────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: supervision-ollama
+    profiles: [voice]
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    networks: [supervision-net]
+
+  voice-pipeline:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile.voice
+    container_name: supervision-voice-pipeline
+    profiles: [voice]
+    environment:
+      <<: *keycloak-realm
+      ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      STT_MODEL: ${STT_MODEL:-small}
+      STT_DEVICE: ${STT_DEVICE:-cpu}
+      TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
+      VOICE_RTP_HOST: 0.0.0.0
+      VOICE_RTP_PORT: ${VOICE_RTP_PORT:-40000}
+      LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-1500}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - voice_models:/models
+    ports:
+      - "${VOICE_RTP_PORT:-40000}:40000/udp"
+    depends_on: [ollama]
+    networks: [supervision-net]
+
+  # ──────────────────────────────  Observabilité  ──────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: supervision-prometheus
+    profiles: [monitoring]
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [supervision-net]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: supervision-grafana
+    profiles: [monitoring]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]
     networks: [supervision-net]
 
 networks:
   supervision-net:
-    external: true
+    driver: bridge
+
+volumes:
+  keycloak_db_data:
+  asterisk_recordings:
+  ollama_models:
+  voice_models:
+  prometheus_data:
+  grafana_data:

@@ -1,6 +1,7 @@
 # src/main.py
-"""Application entrypoint."""
+"""Application entrypoint for the MCP supervision server (Modules 1 & 2)."""
 import logging
+
 from src.config import settings
 from src.interfaces.mcp_tools import mcp
 
@@ -11,12 +12,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():
-    """Start the MCP server."""
-    logger.info(f"Starting MCP server on {settings.mcp_host}:{settings.mcp_port}")
-    logger.info(f"Keycloak: {settings.keycloak_base_url}/realms/{settings.keycloak_realm}")
-    logger.info(f"Asterisk AMI: {settings.asterisk_host}:{settings.asterisk_ami_port}")
-
+def main() -> None:
+    logger.info("MCP server -> %s:%s (%s)", settings.mcp_host, settings.mcp_port, settings.mcp_transport)
+    logger.info("Keycloak   -> %s", settings.keycloak_issuer)
+    logger.info("Asterisk   -> AMI %s:%s / ARI %s", settings.asterisk_host,
+                settings.asterisk_ami_port, settings.asterisk_ari_base_url)
     mcp.run(
         transport=settings.mcp_transport,
         host=settings.mcp_host,

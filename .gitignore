@@ -10,13 +10,29 @@ secrets/
 __pycache__/
 *.pyc
 .venv/
+.venv*/
+venv/
 *.egg-info/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
 
 # Données persistantes des conteneurs
 keycloak/postgres_data/
 monitoring/grafana/data/
 monitoring/prometheus/data/
+ollama/models/
+asterisk/recordings/
+
+# Modèles IA (téléchargés au premier démarrage)
+models/
+*.gguf
+*.onnx
+*.bin
 
 # OS / IDE
 .DS_Store
 .vscode/
+.idea/

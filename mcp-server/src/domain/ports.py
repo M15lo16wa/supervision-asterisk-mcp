@@ -1,51 +1,105 @@
 # src/domain/ports.py
-"""Abstract interfaces (ports) for domain layer.
-These define contracts without implementation details.
+"""Abstract interfaces (ports) for the domain layer.
+
+These define contracts without implementation details. Concrete adapters live
+in ``src/adapters`` (Asterisk) and ``src/voice`` (Speech-to-Speech engines).
 """
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import Any
-from src.domain.entities import Channel, OriginateResult, HangupResult
+
 from fastmcp.server.auth import AccessToken
 
+from src.domain.entities import (
+    CallDetailRecord,
+    CallQuality,
+    Channel,
+    Extension,
+    HangupResult,
+    OriginateResult,
+    SpyMode,
+    SpyResult,
+    TransferResult,
+)
 
-class AriGateway(ABC):
-    """Port: Interface to Asterisk ARI."""
 
+class AsteriskGateway(ABC):
+    """Port: read events from and send commands to Asterisk (AMI/ARI).
+
+    Split conceptually into three zones aligned with the RBAC matrix:
+      * lecture   (operateur+)   : list_channels, list_extensions, get_cdr
+      * analyse   (superviseur+) : get_channel_quality
+      * pilotage  (admin)        : originate, hangup, transfer, start_spy
+    """
+
+    # ---- lecture -------------------------------------------------------------
     @abstractmethod
     async def list_channels(self) -> list[Channel]:
-        """List all active channels in Asterisk."""
+        """List all active channels."""
         ...
 
     @abstractmethod
+    async def list_extensions(self, context: str | None = None) -> list[Extension]:
+        """List dialplan extensions/hints and their device state."""
+        ...
+
+    @abstractmethod
+    async def get_recent_cdr(self, limit: int = 20) -> list[CallDetailRecord]:
+        """Return the most recent Call Detail Records."""
+        ...
+
+    # ---- analyse ------------------------------------------------------------
+    @abstractmethod
+    async def get_channel_quality(self, channel_id: str) -> CallQuality:
+        """Return RTP/RTCP quality metrics (jitter, loss, RTT, estimated MOS)."""
+        ...
+
+    # ---- pilotage --------------------------------------------------------------
+    @abstractmethod
     async def originate(self, endpoint: str, context: str, exten: str) -> OriginateResult:
-        """Originate a new call to the given endpoint."""
+        """Originate a new call towards ``endpoint`` then send it to context/exten."""
         ...
 
     @abstractmethod
     async def hangup(self, channel_id: str) -> HangupResult:
-        """Hangup a channel by ID."""
+        """Hang up a channel."""
         ...
+
+    @abstractmethod
+    async def transfer(
+        self,
+        channel_id: str,
+        destination: str,
+        context: str,
+        attended: bool = False,
+    ) -> TransferResult:
+        """Blind (default) or attended transfer of a channel to a destination."""
+        ...
+
+    @abstractmethod
+    async def start_spy(
+        self,
+        target_channel: str,
+        supervisor_endpoint: str,
+        mode: SpyMode = SpyMode.LISTEN,
+    ) -> SpyResult:
+        """Start supervision (ChanSpy) of ``target_channel`` for a supervisor."""
+        ...
+
+    async def close(self) -> None:  # pragma: no cover - optional lifecycle hook
+        """Release the underlying connection, if any."""
+        return None
 
 
 class HitlConfirmation(ABC):
     """Port: Human-in-the-Loop confirmation mechanism."""
 
     @abstractmethod
-    async def confirm(
-        self, action: str, user: str, details: dict | None = None
-    ) -> bool:
-        """Request and get human confirmation for an action.
-        
-        Args:
-            action: Action identifier (e.g., 'originate_call')
-            user: Username requesting the action
-            details: Additional context about the action
-            
-        Returns:
-            True if confirmed, False if denied or no response.
-            
-        Raises:
-            HitlConfirmationDenied: If denied or timeout.
+    async def confirm(self, action: str, user: str, details: dict | None = None) -> bool:
+        """Request explicit human confirmation for an action.
+
+        Returns ``True`` if confirmed. Raises ``HitlConfirmationDenied`` when the
+        human declines, cancels, or does not answer.
         """
         ...
 
@@ -55,31 +109,51 @@ class SecurityManager(ABC):
 
     @abstractmethod
     async def verify_token(self, token: str) -> AccessToken:
-        """Verify and decode JWT token.
-
-        Raises:
-            UnauthorizedAction: If token is invalid.
-        """
+        """Verify and decode a JWT. Raises on invalid/expired tokens."""
         ...
 
     @abstractmethod
     def require_role(self, token: AccessToken, required_role: str) -> None:
-        """Check if token has required role.
-        
-        Raises:
-            UnauthorizedAction: If role is missing.
-        """
+        """Raise ``UnauthorizedAction`` if the token lacks ``required_role``."""
         ...
 
 
 class DataSanitizer(ABC):
-    """Port: Protection against injection attacks."""
+    """Port: protection against indirect prompt injection."""
 
     @abstractmethod
     def sanitize(self, value: Any) -> Any:
-        """Sanitize external data (Asterisk, CDR, transcriptions).
-        
-        Wraps in safe envelope and neutralizes suspicious patterns.
-        Works recursively on str, dict, list.
-        """
+        """Wrap untrusted external data in an explicit envelope and neutralise
+        suspicious instruction-like patterns. Recurses through str/dict/list."""
+        ...
+
+
+# ─────────────────────────────  Module 3 : voix  ──────────────────────────────
+
+class SpeechToText(ABC):
+    """Port: convert a slin16 PCM buffer into text."""
+
+    @abstractmethod
+    async def transcribe(self, pcm16: bytes, sample_rate: int = 16000) -> str:
+        ...
+
+
+class LanguageModel(ABC):
+    """Port: generate an assistant reply from a user utterance."""
+
+    @abstractmethod
+    async def reply(self, prompt: str, history: list[dict] | None = None) -> str:
+        ...
+
+    async def stream_reply(  # pragma: no cover - default wraps reply()
+        self, prompt: str, history: list[dict] | None = None
+    ) -> AsyncIterator[str]:
+        yield await self.reply(prompt, history)
+
+
+class TextToSpeech(ABC):
+    """Port: synthesise slin16 PCM from text."""
+
+    @abstractmethod
+    async def synthesize(self, text: str, sample_rate: int = 16000) -> bytes:
         ...

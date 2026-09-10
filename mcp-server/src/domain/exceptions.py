@@ -25,3 +25,13 @@ class AsteriskConnectionError(DomainException):
 class ChannelNotFound(DomainException):
     """Raised when requested channel does not exist."""
     pass
+
+
+class AsteriskCommandError(DomainException):
+    """Raised when Asterisk accepts the connection but rejects an action."""
+    pass
+
+
+class VoicePipelineError(DomainException):
+    """Raised when the Speech-to-Speech pipeline cannot process a turn."""
+    pass

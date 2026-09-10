@@ -1,0 +1,32 @@
+# Module 3 — pipeline vocal Speech-to-Speech.
+# Image séparée du serveur MCP : elle embarque faster-whisper + piper (lourds).
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models/hf \
+    TTS_MODEL_DIR=/models/piper
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+RUN pip install --upgrade pip && pip install ".[voice]"
+
+COPY src/ ./src/
+
+# Télécharge la voix Piper française au build (peut être monté en volume à la place).
+RUN mkdir -p /models/piper && \
+    curl -sL -o /models/piper/fr_FR-siwis-medium.onnx \
+      "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx" && \
+    curl -sL -o /models/piper/fr_FR-siwis-medium.onnx.json \
+      "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json" \
+    || echo "voix Piper non téléchargée au build — montez /models/piper en volume"
+
+EXPOSE 40000/udp
+
+CMD ["python", "-m", "src.voice.runner"]

@@ -7,8 +7,8 @@ host never confuses it with an instruction.
 """
 import re
 from typing import Any
-from src.domain.ports import DataSanitizer
 
+from src.domain.ports import DataSanitizer
 
 # Patterns that suggest injection attempts
 SUSPICIOUS_PATTERNS = [

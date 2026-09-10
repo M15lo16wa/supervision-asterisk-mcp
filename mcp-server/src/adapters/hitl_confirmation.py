@@ -4,8 +4,8 @@ import logging
 
 from fastmcp.server.elicitation import AcceptedElicitation
 
-from src.domain.ports import HitlConfirmation
 from src.domain.exceptions import HitlConfirmationDenied
+from src.domain.ports import HitlConfirmation
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,4 @@ class FastMcpHitlConfirmation(HitlConfirmation):
             raise
         except Exception as e:
             logger.error(f"HITL confirmation error for action '{action}': {e}")
-            raise HitlConfirmationDenied(
-                f"HITL confirmation failed: {str(e)}"
-            )
+            raise HitlConfirmationDenied(f"HITL confirmation failed: {e!s}") from e
