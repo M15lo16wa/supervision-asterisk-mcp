@@ -37,13 +37,13 @@ from src.domain.exceptions import (
     HitlConfirmationDenied,
     UnauthorizedAction,
 )
-from src.security.auth import build_jwt_verifier, get_security_manager
+from src.security.auth import build_auth_provider, get_security_manager
 from src.security.sanitizer import DataSanitizerImpl
 
 logger = logging.getLogger(__name__)
 
 # MCP server — Keycloak JWT auth enforced at the transport layer.
-mcp = FastMCP(name="asterisk-mcp-supervision", auth=build_jwt_verifier())
+mcp = FastMCP(name="asterisk-mcp-supervision", auth=build_auth_provider())
 
 # Singletons
 _security = get_security_manager()

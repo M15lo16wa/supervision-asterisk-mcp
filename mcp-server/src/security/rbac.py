@@ -9,9 +9,14 @@ Matrice de droits (cahier des charges) — hiérarchie ascendante :
 
 Un rôle supérieur hérite des permissions des rôles inférieurs.
 """
-from fastmcp.server.auth import AccessToken
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from src.domain.exceptions import UnauthorizedAction
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth import AccessToken
 
 # Du moins privilégié au plus privilégié.
 ROLE_HIERARCHY: tuple[str, ...] = ("operateur", "superviseur", "admin")

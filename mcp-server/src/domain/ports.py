@@ -6,9 +6,12 @@ in ``src/adapters`` (Asterisk) and ``src/voice`` (Speech-to-Speech engines).
 """
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from fastmcp.server.auth import AccessToken
+if TYPE_CHECKING:  # le domaine ne dépend pas du framework à l'exécution
+    from fastmcp.server.auth import AccessToken
+else:
+    AccessToken = Any
 
 from src.domain.entities import (
     CallDetailRecord,

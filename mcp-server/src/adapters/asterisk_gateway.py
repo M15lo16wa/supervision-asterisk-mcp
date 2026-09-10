@@ -55,6 +55,7 @@ class PanoramiskGateway(AsteriskGateway):
     """Concrete AMI gateway."""
 
     CDR_BUFFER_SIZE = 500
+    ACTION_TIMEOUT = 8.0  # s — une action AMI qui n'émet pas l'event de fin ne doit pas bloquer
 
     def __init__(
         self,
@@ -108,7 +109,14 @@ class PanoramiskGateway(AsteriskGateway):
     async def _send(self, action: dict, *, as_list: bool = False):
         manager = await self._connect()
         try:
-            return await manager.send_action(action, as_list=as_list)
+            return await asyncio.wait_for(
+                manager.send_action(action, as_list=as_list), timeout=self.ACTION_TIMEOUT
+            )
+        except asyncio.TimeoutError as e:
+            raise AsteriskCommandError(
+                f"AMI action {action.get('Action')} timed out after {self.ACTION_TIMEOUT}s "
+                f"(l'événement de fin n'a pas été reçu)"
+            ) from e
         except Exception as e:
             raise AsteriskConnectionError(f"AMI action {action.get('Action')} failed: {e}") from e
 
@@ -186,26 +194,34 @@ class PanoramiskGateway(AsteriskGateway):
 
     # -------------------------------------------------------------------- analyse
     async def get_channel_quality(self, channel_id: str) -> CallQuality:
-        messages = await self._send(
-            {"Action": "PJSIPShowChannelStats", "Channel": channel_id}, as_list=True
-        )
         stats = None
-        for msg in messages or []:
-            if _g(msg, "Event") in ("ChannelStats", "PJSIPShowChannelStats"):
-                stats = msg
-                break
-        if stats is None:
-            # Fallback: RTP QoS channel variable set by Asterisk at hangup / on demand.
-            var = await self._send(
-                {"Action": "Getvar", "Channel": channel_id, "Variable": "RTPAUDIOQOS"}
+        try:
+            messages = await self._send(
+                {"Action": "PJSIPShowChannelStats", "Channel": channel_id}, as_list=True
             )
-            self._raise_if_error(var, "get_channel_quality")
-            raw = _g(var, "Value")
-            if not raw:
-                raise AsteriskCommandError(
-                    "get_channel_quality: no RTCP stats available for this channel"
-                )
-            return self._quality_from_rtpqos(channel_id, raw)
+            for msg in messages or []:
+                if _g(msg, "Event") in ("ChannelStats", "PJSIPShowChannelStats"):
+                    stats = msg
+                    break
+        except AsteriskCommandError:
+            stats = None  # canal non-PJSIP ou action indisponible -> repli
+
+        if stats is None:
+            # Repli : variable RTP QoS posée par Asterisk (RTPAUDIOQOS / RTPQOS).
+            for variable in ("RTPAUDIOQOS", "RTPAUDIOQOSBRIDGED"):
+                try:
+                    var = await self._send(
+                        {"Action": "Getvar", "Channel": channel_id, "Variable": variable}
+                    )
+                except AsteriskCommandError:
+                    continue
+                self._raise_if_error(var, "get_channel_quality")
+                raw = _g(var, "Value")
+                if raw:
+                    return self._quality_from_rtpqos(channel_id, raw)
+            raise AsteriskCommandError(
+                f"get_channel_quality: aucune statistique RTCP disponible pour {channel_id}"
+            )
 
         def num(key: str) -> float:
             try:

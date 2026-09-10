@@ -92,6 +92,23 @@ comme dépendance pour le pilotage ; (3) sortie passée au `DataSanitizer`.
 python scripts/smoke_mcp.py --token-file /tmp/tok.json --confirm oui
 ```
 
+### Tester contre un Asterisk déjà en place (sans Keycloak)
+
+```bash
+./scripts/setup_test_asterisk.sh <conteneur>     # crée les comptes mcp_ami/mcp_ari,
+                                                 # active ARI, ajoute 1001/1002 + dialplan
+MCP_AUTH_MODE=static python scripts/live_test_asterisk.py   # adapter AMI <-> Asterisk
+```
+
+En mode `static`, trois jetons opaques remplacent Keycloak :
+`dev-operateur`, `dev-superviseur`, `dev-admin` (surcouche `MCP_STATIC_TOKENS`).
+
+> Validé sur un conteneur **Asterisk 20.6** : login AMI, `list_active_channels`
+> (canaux réels), `list_extensions` (hints), `originate`/`hangup`, capture CDR
+> temps réel, et la chaîne complète *client MCP → HTTP → auth → RBAC → HITL →
+> AMI* (RBAC refuse bien l'`originate_call` à un opérateur, l'accepte pour un
+> admin après confirmation).
+
 ---
 
 ## Développement (hors Docker)

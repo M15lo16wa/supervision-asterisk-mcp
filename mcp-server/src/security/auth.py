@@ -5,6 +5,9 @@ The token authenticates the MCP *session* only — it is never forwarded to
 Asterisk (no token passthrough). Asterisk uses its own dedicated AMI/ARI
 credentials, configured separately.
 """
+import json
+import os
+
 from fastmcp.server.auth import AccessToken
 
 try:  # fastmcp 3.x
@@ -12,18 +15,59 @@ try:  # fastmcp 3.x
 except ImportError:  # fastmcp >= 4.0
     from fastmcp.server.auth.providers.jwt import JWTVerifier
 
+try:
+    from fastmcp.server.auth import StaticTokenVerifier
+except ImportError:  # pragma: no cover
+    from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+
 from src.config import settings
 from src.domain.ports import SecurityManager
 from src.security.exceptions import TokenVerificationError
 from src.security.rbac import require_role as rbac_require_role
 
+# Jetons de développement (MCP_AUTH_MODE=static) — PAS pour la production.
+# Surcharge possible via MCP_STATIC_TOKENS='{"tok": ["role", ...]}'.
+_DEFAULT_STATIC_TOKENS = {
+    "dev-operateur": ["operateur"],
+    "dev-superviseur": ["superviseur"],
+    "dev-admin": ["admin"],
+}
 
-def build_jwt_verifier() -> JWTVerifier:
-    """Build the FastMCP JWT verifier from Keycloak config.
 
-    The returned verifier is passed to ``FastMCP(auth=...)`` so that the
-    transport layer authenticates every request before a tool runs.
+def _auth_mode() -> str:
+    return os.getenv("MCP_AUTH_MODE", "keycloak").strip().lower()
+
+
+def _static_token_map() -> dict[str, list[str]]:
+    raw = os.getenv("MCP_STATIC_TOKENS")
+    if raw:
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            pass
+    return _DEFAULT_STATIC_TOKENS
+
+
+def build_auth_provider():
+    """Auth provider passé à ``FastMCP(auth=...)``.
+
+    - ``keycloak`` (défaut) : JWTVerifier OIDC (RS256, JWKS Keycloak).
+    - ``static``            : StaticTokenVerifier — jetons opaques -> rôles,
+      pour tester en local sans Keycloak.
     """
+    if _auth_mode() == "static":
+        # StaticTokenVerifier copie tout le dict dans AccessToken.claims :
+        # on met donc realm_access / preferred_username à la racine.
+        tokens = {
+            tok: {
+                "client_id": f"dev:{tok}",
+                "scopes": [],
+                "preferred_username": tok,
+                "realm_access": {"roles": roles},
+            }
+            for tok, roles in _static_token_map().items()
+        }
+        return StaticTokenVerifier(tokens=tokens)
     return JWTVerifier(
         jwks_uri=settings.keycloak_jwks_url,
         issuer=settings.keycloak_issuer,
@@ -31,14 +75,19 @@ def build_jwt_verifier() -> JWTVerifier:
     )
 
 
+# Rétrocompat : ancien nom.
+def build_jwt_verifier():
+    return build_auth_provider()
+
+
 class KeycloakSecurityManager(SecurityManager):
-    """Manages authentication via Keycloak JWT tokens."""
+    """Manages authentication via Keycloak JWT tokens (ou jetons statiques en dev)."""
 
     def __init__(self):
         """Initialize security manager with Keycloak config from environment."""
-        self.verifier = build_jwt_verifier()
-        self.jwks_uri = self.verifier.jwks_uri
-        self.issuer = self.verifier.issuer
+        self.verifier = build_auth_provider()
+        self.jwks_uri = getattr(self.verifier, "jwks_uri", None)
+        self.issuer = getattr(self.verifier, "issuer", None)
 
     async def verify_token(self, token: str) -> AccessToken:
         """Verify and decode a JWT token.
