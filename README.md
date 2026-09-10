@@ -31,7 +31,7 @@ Démarrer le serveur MCP :
 cd mcp-server
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 pip show fastmcp
 ```
 
@@ -40,8 +40,8 @@ Configurer l'environnement du serveur MCP :
 cp .env.example .env
 nano .env
 export PYTHONPATH=$(pwd)
-export $(cat .env | xargs)
-python3 -m src.interfaces.mcp_tools
+set -a && . ./.env && set +a
+python3 -m src.main
 ```
 
 Vérifier l'installation (optionnel) :
@@ -74,5 +74,5 @@ Le projet suit une architecture hexagonale avec deux zones :
 - FastMCP 3.0+ (serveur MCP)
 - Keycloak (authentification)
 - Prometheus + Grafana (monitoring)
-- Asterisk ARI (communication VoIP)
+- Asterisk AMI (communication VoIP, via Panoramisk)
 

@@ -6,6 +6,7 @@ is treated as untrusted and wrapped in explicit envelopes so the LLM
 host never confuses it with an instruction.
 """
 import re
+from typing import Any
 from src.domain.ports import DataSanitizer
 
 
@@ -41,7 +42,7 @@ def neutralize_suspicious_patterns(text: str) -> str:
 class DataSanitizerImpl(DataSanitizer):
     """Concrete implementation of data sanitization."""
 
-    def sanitize(self, value: any) -> any:
+    def sanitize(self, value: Any) -> Any:
         """Recursively sanitize untrusted data.
         
         - Strings: Wrap in envelope + neutralize suspicious patterns

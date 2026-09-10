@@ -6,7 +6,7 @@ from fastmcp import FastMCP, Context
 from fastmcp.server.dependencies import CurrentAccessToken
 from fastmcp.server.auth import AccessToken
 
-from src.security.auth import get_security_manager
+from src.security.auth import get_security_manager, build_jwt_verifier
 from src.security.sanitizer import DataSanitizerImpl
 from src.adapters.ari_gateway import PanoramiskAriGateway
 from src.adapters.hitl_confirmation import FastMcpHitlConfirmation
@@ -16,8 +16,10 @@ from src.domain.exceptions import UnauthorizedAction, HitlConfirmationDenied
 
 logger = logging.getLogger(__name__)
 
-# Initialize MCP server
-mcp = FastMCP(name="asterisk-mcp-supervision")
+# Initialize MCP server with Keycloak JWT authentication enforced at the
+# transport layer. Every request is authenticated before a tool runs, and
+# the verified token is injected into tools via CurrentAccessToken().
+mcp = FastMCP(name="asterisk-mcp-supervision", auth=build_jwt_verifier())
 
 # Initialize dependencies (singletons)
 _security_manager = get_security_manager()

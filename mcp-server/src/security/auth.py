@@ -1,11 +1,27 @@
 # src/security/auth.py
 """JWT authentication with Keycloak."""
 import os
-from fastmcp.server.auth import JWTVerifier, AccessToken
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.auth.providers.jwt import JWTVerifier
 from src.security.exceptions import TokenVerificationError
 from src.domain.ports import SecurityManager
 from src.security.rbac import require_role as rbac_require_role
-from src.domain.exceptions import UnauthorizedAction
+
+
+def build_jwt_verifier() -> JWTVerifier:
+    """Build the FastMCP JWT verifier from Keycloak config.
+
+    The returned verifier is passed to ``FastMCP(auth=...)`` so that the
+    transport layer authenticates every request before a tool runs.
+    """
+    keycloak_base_url = os.getenv("KEYCLOAK_BASE_URL", "http://localhost:8080")
+    keycloak_realm = os.getenv("KEYCLOAK_REALM", "asterik")
+
+    return JWTVerifier(
+        jwks_uri=f"{keycloak_base_url}/realms/{keycloak_realm}/protocol/openid-connect/certs",
+        issuer=f"{keycloak_base_url}/realms/{keycloak_realm}",
+        algorithm="RS256",
+    )
 
 
 class KeycloakSecurityManager(SecurityManager):
@@ -13,33 +29,26 @@ class KeycloakSecurityManager(SecurityManager):
 
     def __init__(self):
         """Initialize security manager with Keycloak config from environment."""
-        keycloak_base_url = os.getenv(
-            "KEYCLOAK_BASE_URL", "http://localhost:8080"
-        )
-        keycloak_realm = os.getenv("KEYCLOAK_REALM", "asterik")
+        self.verifier = build_jwt_verifier()
+        self.jwks_uri = self.verifier.jwks_uri
+        self.issuer = self.verifier.issuer
 
-        self.jwks_uri = f"{keycloak_base_url}/realms/{keycloak_realm}/protocol/openid-connect/certs"
-        self.issuer = f"{keycloak_base_url}/realms/{keycloak_realm}"
+    async def verify_token(self, token: str) -> AccessToken:
+        """Verify and decode a JWT token.
 
-        self.verifier = JWTVerifier(
-            jwks_uri=self.jwks_uri,
-            issuer=self.issuer,
-            algorithm="RS256",
-        )
-
-    def verify_token(self, token: str) -> AccessToken:
-        """Verify and decode JWT token.
-        
         Raises:
             TokenVerificationError: If token is invalid or expired.
         """
+        # FastMCP's JWTVerifier expects the token without the 'Bearer ' prefix
+        if token.startswith("Bearer "):
+            token = token[7:]
         try:
-            # FastMCP's JWTVerifier expects token without 'Bearer ' prefix
-            if token.startswith("Bearer "):
-                token = token[7:]
-            return self.verifier.verify(token)
+            access_token = await self.verifier.verify_token(token)
         except Exception as e:
             raise TokenVerificationError(f"Token verification failed: {str(e)}")
+        if access_token is None:
+            raise TokenVerificationError("Token verification failed: invalid or expired token")
+        return access_token
 
     def require_role(self, token: AccessToken, required_role: str) -> None:
         """Enforce role requirement.

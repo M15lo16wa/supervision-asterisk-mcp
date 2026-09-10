@@ -1,6 +1,9 @@
 # src/adapters/hitl_confirmation.py
 """Human-in-the-Loop confirmation implementation."""
 import logging
+
+from fastmcp.server.elicitation import AcceptedElicitation
+
 from src.domain.ports import HitlConfirmation
 from src.domain.exceptions import HitlConfirmationDenied
 
@@ -47,14 +50,15 @@ class FastMcpHitlConfirmation(HitlConfirmation):
                 response_type=bool,
             )
 
-            confirmed = result.action == "accept" and bool(result.data)
+            confirmed = isinstance(result, AcceptedElicitation) and bool(result.data)
 
             if not confirmed:
                 logger.warning(
                     f"HITL confirmation denied for action '{action}' by user '{user}'"
                 )
                 raise HitlConfirmationDenied(
-                    f"Action '{action}' cancelled: confirmation refused (response: {result.action})"
+                    f"Action '{action}' cancelled: confirmation refused "
+                    f"(response: {type(result).__name__})"
                 )
 
             logger.info(f"HITL confirmation accepted for action '{action}' by user '{user}'")

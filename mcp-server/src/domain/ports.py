@@ -3,6 +3,7 @@
 These define contracts without implementation details.
 """
 from abc import ABC, abstractmethod
+from typing import Any
 from src.domain.entities import Channel, OriginateResult, HangupResult
 from fastmcp.server.auth import AccessToken
 
@@ -53,9 +54,9 @@ class SecurityManager(ABC):
     """Port: Authentication and RBAC enforcement."""
 
     @abstractmethod
-    def verify_token(self, token: str) -> AccessToken:
+    async def verify_token(self, token: str) -> AccessToken:
         """Verify and decode JWT token.
-        
+
         Raises:
             UnauthorizedAction: If token is invalid.
         """
@@ -75,7 +76,7 @@ class DataSanitizer(ABC):
     """Port: Protection against injection attacks."""
 
     @abstractmethod
-    def sanitize(self, value: any) -> any:
+    def sanitize(self, value: Any) -> Any:
         """Sanitize external data (Asterisk, CDR, transcriptions).
         
         Wraps in safe envelope and neutralizes suspicious patterns.

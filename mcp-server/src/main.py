@@ -1,6 +1,5 @@
 # src/main.py
 """Application entrypoint."""
-import asyncio
 import logging
 from src.config import settings
 from src.interfaces.mcp_tools import mcp
