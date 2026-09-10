@@ -40,6 +40,16 @@ password = changeme_ari
 password_format = plain
 EOF
 
+# --- Métriques Prometheus (res_prometheus, Basic Auth) ---
+docker exec -i "$C" tee /etc/asterisk/prometheus.conf >/dev/null <<'EOF'
+[general]
+enabled = yes
+core_metrics_enabled = yes
+uri = metrics
+auth_username = prometheus
+auth_password = changeme_metrics
+EOF
+
 # --- CDR temps réel via AMI ---
 docker exec -i "$C" tee /etc/asterisk/cdr_manager.conf >/dev/null <<'EOF'
 [general]
@@ -123,7 +133,8 @@ docker exec "$C" bash -c 'grep -q extensions_mcp.conf /etc/asterisk/extensions.c
 
 # --- recharge ---
 docker exec "$C" asterisk -rx "module reload manager"
-docker exec "$C" asterisk -rx "module load cdr_manager.so" || docker exec "$C" asterisk -rx "module reload cdr_manager.so"
+docker exec "$C" asterisk -rx "module reload cdr_manager.so" || true
+docker exec "$C" asterisk -rx "module reload res_prometheus.so" || true
 docker exec "$C" asterisk -rx "module reload res_ari.so"
 docker exec "$C" asterisk -rx "module reload res_pjsip.so"
 docker exec "$C" asterisk -rx "dialplan reload"

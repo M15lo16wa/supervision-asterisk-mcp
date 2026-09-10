@@ -1,0 +1,209 @@
+{
+  "uid": "supervision-mcp",
+  "title": "Supervision Asterisk MCP",
+  "tags": ["asterisk", "mcp", "s2s"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 2,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Serveur MCP",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100
+    },
+    {
+      "type": "stat",
+      "title": "Appels d'outils / min",
+      "id": 1,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(mcp_tool_calls_total[5m])) * 60" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Refus RBAC (1h)",
+      "id": 2,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(mcp_rbac_denials_total[1h]))" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "orange", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "HITL confirmés / refusés (1h)",
+      "id": 3,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{outcome}}",
+          "expr": "sum by (outcome) (increase(mcp_hitl_total[1h]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Canaux actifs",
+      "id": 4,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "expr": "mcp_active_channels" } ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Débit d'appels par outil",
+      "id": 5,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{tool}} ({{status}})",
+          "expr": "sum by (tool, status) (rate(mcp_tool_calls_total[5m]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latence outils p95",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{tool}}",
+          "expr": "histogram_quantile(0.95, sum by (tool, le) (rate(mcp_tool_duration_seconds_bucket[5m])))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 5 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Erreurs Asterisk par type",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{kind}} ({{tool}})",
+          "expr": "sum by (kind, tool) (rate(mcp_asterisk_errors_total[5m]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "type": "row",
+      "title": "Pipeline vocal S2S",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "id": 101
+    },
+    {
+      "type": "stat",
+      "title": "Appels vocaux en cours",
+      "id": 8,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "expr": "voice_active_calls" } ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "gauge",
+      "title": "Tours dans le budget (1h)",
+      "id": 9,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "expr": "100 * sum(increase(voice_turns_total{within_budget=\"true\"}[1h])) / clamp_min(sum(increase(voice_turns_total[1h])), 1)" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "orange", "value": 80 }, { "color": "green", "value": 95 }
+          ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Dépassements de budget (1h)",
+      "id": 10,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "expr": "sum(increase(voice_budget_exceeded_total[1h]))" } ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "red", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latence par étape p95 (budget 1,5 s)",
+      "id": 11,
+      "gridPos": { "h": 8, "w": 18, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{stage}}",
+          "expr": "histogram_quantile(0.95, sum by (stage, le) (rate(voice_stage_duration_seconds_bucket[5m])))" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s", "custom": { "fillOpacity": 5 },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "red", "value": 1.5 }
+          ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Asterisk & Ollama",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 102
+    },
+    {
+      "type": "timeseries",
+      "title": "Asterisk — canaux / appels",
+      "id": 12,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "channels", "expr": "asterisk_channels_count" },
+        { "refId": "B", "legendFormat": "calls", "expr": "asterisk_calls_count" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ollama — requêtes",
+      "id": 13,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "requests/s",
+          "expr": "sum(rate(ollama_request_duration_seconds_count[5m]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    }
+  ]
+}

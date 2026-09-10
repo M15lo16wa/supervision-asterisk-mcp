@@ -17,6 +17,8 @@ import contextlib
 import logging
 import os
 
+from src.observability import metrics
+from src.observability.http import start_metrics_server
 from src.voice.config import voice_settings
 from src.voice.external_media import AriClient, open_rtp_endpoint
 from src.voice.llm import build_llm
@@ -36,6 +38,7 @@ async def _handle_call(ari: AriClient, channel_id: str) -> None:
     endpoint, port = await open_rtp_endpoint(voice_settings)
     bridge_id = None
     extmedia_id = None
+    metrics.VOICE_ACTIVE_CALLS.inc()
     try:
         await ari.answer(channel_id)
         bridge_id = await ari.create_bridge()
@@ -66,6 +69,7 @@ async def _handle_call(ari: AriClient, channel_id: str) -> None:
         if bridge_id:
             with contextlib.suppress(Exception):
                 await ari.destroy_bridge(bridge_id)
+        metrics.VOICE_ACTIVE_CALLS.dec()
         logger.info("call %s cleaned up", channel_id)
 
 
@@ -88,6 +92,7 @@ async def main() -> None:
         voice_settings.ari_app, voice_settings.ari_base_url,
         voice_settings.ollama_base_url, voice_settings.latency_budget_ms,
     )
+    await start_metrics_server(port=int(os.getenv("VOICE_METRICS_PORT", "9092")))
     async with AriClient(voice_settings) as ari:
         tasks: set[asyncio.Task] = set()
         async for event in ari.events():

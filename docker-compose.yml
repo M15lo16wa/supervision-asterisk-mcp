@@ -2,8 +2,15 @@
 #
 #   docker compose up -d                       # socle : Keycloak + serveur MCP
 #   docker compose --profile asterisk up -d    # + Asterisk 22 (Module 2)
-#   docker compose --profile voice up -d       # + Ollama + pipeline vocal (Module 3)
-#   docker compose --profile monitoring up -d  # + Prometheus + Grafana
+#   docker compose --profile voice up -d       # + Ollama (+ pull modèle) + pipeline vocal (Module 3)
+#   docker compose --profile monitoring up -d  # + Prometheus + Grafana (dashboard provisionné)
+#
+# Tout à la fois :
+#   docker compose --profile asterisk --profile voice --profile monitoring up -d
+#
+# Endpoints métriques : mcp-server:8000/metrics · voice-pipeline:9092/metrics
+#   · asterisk:8088/metrics (Basic Auth) · ollama:11434/metrics
+# Grafana : http://localhost:3000  (admin / admin) — dashboard « Supervision Asterisk MCP »
 #
 # Copier .env.example -> .env avant le premier démarrage.
 
@@ -75,12 +82,19 @@ services:
       ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
       ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
       ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-keycloak}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "${MCP_PORT:-8000}:8000"
     depends_on:
       keycloak:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/metrics',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     networks: [supervision-net]
 
@@ -105,10 +119,36 @@ services:
     image: ollama/ollama:latest
     container_name: supervision-ollama
     profiles: [voice]
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
     volumes:
       - ollama_models:/root/.ollama
     ports:
       - "${OLLAMA_PORT:-11434}:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [supervision-net]
+
+  # One-shot : télécharge le modèle LLM au premier démarrage puis se termine.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: supervision-ollama-init
+    profiles: [voice]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'ollama pull "$${OLLAMA_MODEL}" && echo "modèle $${OLLAMA_MODEL} prêt"'
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
     networks: [supervision-net]
 
   voice-pipeline:
@@ -129,13 +169,24 @@ services:
       TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
       VOICE_RTP_HOST: 0.0.0.0
       VOICE_RTP_PORT: ${VOICE_RTP_PORT:-40000}
+      VOICE_METRICS_PORT: 9092
       LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-1500}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - voice_models:/models
     ports:
       - "${VOICE_RTP_PORT:-40000}:40000/udp"
-    depends_on: [ollama]
+      - "${VOICE_METRICS_PORT:-9092}:9092"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9092/health',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [supervision-net]
 
   # ──────────────────────────────  Observabilité  ──────────────────────────────
@@ -143,11 +194,22 @@ services:
     image: prom/prometheus:latest
     container_name: supervision-prometheus
     profiles: [monitoring]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks: [supervision-net]
 
   grafana:
@@ -155,13 +217,20 @@ services:
     container_name: supervision-grafana
     profiles: [monitoring]
     environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "5s"
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
-      - "3000:3000"
-    depends_on: [prometheus]
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    restart: unless-stopped
     networks: [supervision-net]
 
 networks:

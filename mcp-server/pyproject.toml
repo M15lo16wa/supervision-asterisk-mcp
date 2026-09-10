@@ -10,6 +10,7 @@ dependencies = [
     "pyjwt[crypto]>=2.9",
     "pydantic>=2.9",
     "panoramisk>=1.4",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

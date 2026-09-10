@@ -1,7 +1,43 @@
+# Scrape des composants du système de supervision.
+# Les cibles sont résolues via le réseau docker-compose `supervision-net`.
 global:
   scrape_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    stack: supervision-asterisk-mcp
 
 scrape_configs:
-  - job_name: "asterisk_exporter"
+  - job_name: prometheus
     static_configs:
-      - targets: ["asterisk-exporter:9999"]
+      - targets: ["localhost:9090"]
+
+  # Serveur MCP (Modules 1 & 2) — route /metrics ajoutée à l'ASGI FastMCP.
+  - job_name: mcp-server
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["mcp-server:8000"]
+
+  # Pipeline vocal S2S (Module 3) — petit serveur aiohttp dédié.
+  - job_name: voice-pipeline
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["voice-pipeline:9092"]
+
+  # Asterisk (res_prometheus, exposé sur le serveur HTTP ARI, Basic Auth).
+  # res_prometheus renvoie /metrics sans en-tête Content-Type -> on force le
+  # protocole de repli, sinon Prometheus >= 3.0 rejette la cible.
+  - job_name: asterisk
+    metrics_path: /metrics
+    scheme: http
+    fallback_scrape_protocol: PrometheusText0.0.4
+    basic_auth:
+      username: prometheus
+      password: changeme_metrics
+    static_configs:
+      - targets: ["asterisk:8088"]
+
+  # Ollama expose /metrics nativement (format Prometheus).
+  - job_name: ollama
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ollama:11434"]

@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from src.domain.entities import VoiceTurn
 from src.domain.exceptions import VoicePipelineError
 from src.domain.ports import LanguageModel, SpeechToText, TextToSpeech
+from src.observability import metrics
 from src.voice.audio import UtteranceDetector, iter_frames
 from src.voice.config import VoiceSettings
 
@@ -121,6 +122,7 @@ class S2SPipeline:
                 "latency budget exceeded on %s: first audio in %.0f ms (budget %d ms)",
                 channel_id, time_to_first_audio_ms, budget,
             )
+        metrics.record_voice_turn(turn.timings, turn.within_budget)
 
         self._history.append({"role": "user", "content": transcript})
         self._history.append({"role": "assistant", "content": turn.response_text})

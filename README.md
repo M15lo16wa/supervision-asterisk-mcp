@@ -36,11 +36,9 @@ docker compose --profile voice up -d        # Ollama + pipeline vocal (Module 3)
 docker compose --profile monitoring up -d   # Prometheus + Grafana
 ```
 
-Après le premier démarrage avec le profil `voice`, tirer un modèle Ollama :
-
-```bash
-docker compose exec ollama ollama pull qwen2.5:3b-instruct
-```
+Avec le profil `voice`, le service `ollama-init` télécharge automatiquement le
+modèle (`OLLAMA_MODEL`, défaut `qwen2.5:3b-instruct`). Pour le refaire à la main :
+`./scripts/ollama_pull.sh`.
 
 ---
 
@@ -178,10 +176,34 @@ Variables clés (`.env`) : `OLLAMA_MODEL`, `STT_MODEL`, `STT_DEVICE`, `TTS_VOICE
 
 ---
 
+## Observabilité — Prometheus & Grafana
+
+`docker compose --profile monitoring up -d`
+
+| Cible scrappée | Endpoint | Métriques clés |
+|---|---|---|
+| Serveur MCP | `mcp-server:8000/metrics` | `mcp_tool_calls_total{tool,status}`, `mcp_tool_duration_seconds`, `mcp_rbac_denials_total`, `mcp_hitl_total{outcome}`, `mcp_asterisk_errors_total`, `mcp_active_channels` |
+| Pipeline vocal | `voice-pipeline:9092/metrics` | `voice_turns_total{within_budget}`, `voice_stage_duration_seconds{stage}`, `voice_budget_exceeded_total`, `voice_active_calls` |
+| Asterisk | `asterisk:8088/metrics` (Basic Auth, `res_prometheus`) | `asterisk_channels_count`, `asterisk_calls_count`, `asterisk_endpoints_state` |
+| Ollama | `ollama:11434/metrics` | latence des requêtes LLM |
+
+Grafana : **http://localhost:3000** (`admin`/`admin`) — datasource Prometheus et
+dashboard **« Supervision Asterisk MCP »** provisionnés automatiquement
+(`monitoring/grafana/`). Panneaux : débit/latence des outils, refus RBAC,
+issues HITL, latence S2S par étape vs budget 1,5 s, canaux/appels Asterisk.
+
+> Le job Asterisk force `fallback_scrape_protocol: PrometheusText0.0.4` car
+> `res_prometheus` répond sans en-tête `Content-Type` (rejeté sinon par
+> Prometheus ≥ 3.0). Testé : Prometheus scrappe `mcp-server` et `asterisk`
+> (`up`), Grafana interroge la datasource et charge le dashboard.
+
+---
+
 ## Stack
 
 Python 3.10+ · FastMCP 3.x · Keycloak 26 · Panoramisk (AMI) · aiohttp (ARI) ·
-Asterisk 22 · faster-whisper · Ollama · Piper · Prometheus + Grafana.
+Asterisk 20/22 · faster-whisper · Ollama · Piper · prometheus-client ·
+Prometheus + Grafana.
 
 ## Avertissement
 
