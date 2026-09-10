@@ -7,10 +7,14 @@ lance via `npx`.
 ## Prérequis
 
 ```bash
-docker compose up -d                       # Keycloak + serveur MCP
+docker compose up -d                       # PostgreSQL + Keycloak + serveur MCP
 # ou, pour tester sans Keycloak :
 MCP_AUTH_MODE=static docker compose up -d
 ```
+
+Pour les étapes 1–3 du parcours, un conteneur Asterisk doit être joint au réseau
+et configuré (`docker network connect supervision-net <asterisk>` +
+`./scripts/setup_test_asterisk.sh <asterisk>`).
 
 ## Lancer l'Inspector
 
@@ -56,8 +60,8 @@ Puis dans l'UI (http://localhost:6274) :
 ## Vérifications transverses
 
 ```bash
-curl -s http://localhost:8000/metrics | grep mcp_          # Prometheus
-docker compose exec mcp-server tail -f logs/audit.jsonl     # journal d'audit
+curl -s http://localhost:8000/metrics | grep mcp_               # Prometheus
+docker compose exec mcp-server tail -f /app/logs/audit.jsonl    # journal d'audit
 ```
 
 ## Schémas JSON des outils

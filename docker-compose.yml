@@ -1,18 +1,12 @@
-# Orchestration complète du système de supervision Asterisk via MCP.
+# Orchestration du socle : PostgreSQL + Keycloak + serveur MCP.
 #
-#   docker compose up -d                       # socle : Keycloak + serveur MCP
-#   docker compose --profile asterisk up -d    # + Asterisk 22 (Module 2)
-#   docker compose --profile voice up -d       # + Ollama (+ pull modèle) + pipeline vocal (Module 3)
-#   docker compose --profile monitoring up -d  # + Prometheus + Grafana (dashboard provisionné)
+#   cp .env.example .env
+#   docker compose up -d
 #
-# Tout à la fois :
-#   docker compose --profile asterisk --profile voice --profile monitoring up -d
-#
-# Endpoints métriques : mcp-server:8000/metrics · voice-pipeline:9092/metrics
-#   · asterisk:8088/metrics (Basic Auth) · ollama:11434/metrics
-# Grafana : http://localhost:3000  (admin / admin) — dashboard « Supervision Asterisk MCP »
-#
-# Copier .env.example -> .env avant le premier démarrage.
+# Asterisk, Ollama, Prometheus et Grafana NE sont PAS gérés par ce compose :
+# ce sont des conteneurs séparés, déjà présents sur la machine (voir README
+# « Composants externes »). Le serveur MCP s'y connecte via le réseau
+# `supervision-net` et les variables ASTERISK_* / OLLAMA_* du .env.
 
 x-common-env: &keycloak-realm
   KEYCLOAK_BASE_URL: http://keycloak:8080
@@ -21,7 +15,6 @@ x-common-env: &keycloak-realm
 
 services:
 
-  # ─────────────────────────────  Module 1 : Socle  ─────────────────────────────
   keycloak-db:
     image: postgres:16-alpine
     container_name: supervision-keycloak-db
@@ -74,7 +67,14 @@ services:
       MCP_TRANSPORT: streamable-http
       MCP_HOST: 0.0.0.0
       MCP_PORT: 8000
-      # Asterisk (profil `asterisk`) — sinon les outils Module 2 renvoient une erreur propre.
+      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-keycloak}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8000}
+      MCP_HITL_MODE: ${MCP_HITL_MODE:-pilotage}
+      AUDIT_LOG_PATH: /app/logs/audit.jsonl
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Asterisk = conteneur externe joint à supervision-net (défaut : hostname "asterisk").
+      # Si le serveur MCP ne peut pas le joindre, les outils Module 2 renvoient
+      # une erreur "asterisk_unavailable" propre (le socle reste fonctionnel).
       ASTERISK_HOST: ${ASTERISK_HOST:-asterisk}
       ASTERISK_AMI_PORT: ${ASTERISK_AMI_PORT:-5038}
       ASTERISK_AMI_USER: ${ASTERISK_AMI_USER:-mcp_ami}
@@ -84,11 +84,6 @@ services:
       ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
       ASTERISK_DEFAULT_CONTEXT: ${ASTERISK_DEFAULT_CONTEXT:-internal}
       ASTERISK_TRUNKS: ${ASTERISK_TRUNKS:-trunk-out}
-      MCP_AUTH_MODE: ${MCP_AUTH_MODE:-keycloak}
-      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8000}
-      MCP_HITL_MODE: ${MCP_HITL_MODE:-pilotage}
-      AUDIT_LOG_PATH: /app/logs/audit.jsonl
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - mcp_audit:/app/logs
     ports:
@@ -105,150 +100,11 @@ services:
     restart: unless-stopped
     networks: [supervision-net]
 
-  # ────────────────────────  Module 2 : Infrastructure VoIP  ────────────────────
-  asterisk:
-    image: andrius/asterisk:22.5.0
-    container_name: supervision-asterisk
-    profiles: [asterisk]
-    volumes:
-      - ./asterisk/config:/etc/asterisk:ro
-      - asterisk_recordings:/var/spool/asterisk/recording
-    ports:
-      - "5060:5060/udp"
-      - "5060:5060/tcp"
-      - "5038:5038/tcp"      # AMI
-      - "8088:8088/tcp"      # ARI / HTTP
-      - "10000-10099:10000-10099/udp"  # RTP
-    networks: [supervision-net]
-
-  # ─────────────────────  Module 3 : Pipeline vocal S2S local  ──────────────────
-  ollama:
-    image: ollama/ollama:latest
-    container_name: supervision-ollama
-    profiles: [voice]
-    environment:
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
-    volumes:
-      - ollama_models:/root/.ollama
-    ports:
-      - "${OLLAMA_PORT:-11434}:11434"
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 10s
-    restart: unless-stopped
-    networks: [supervision-net]
-
-  # One-shot : télécharge le modèle LLM au premier démarrage puis se termine.
-  ollama-init:
-    image: ollama/ollama:latest
-    container_name: supervision-ollama-init
-    profiles: [voice]
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - 'ollama pull "$${OLLAMA_MODEL}" && echo "modèle $${OLLAMA_MODEL} prêt"'
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: "no"
-    networks: [supervision-net]
-
-  voice-pipeline:
-    build:
-      context: ./mcp-server
-      dockerfile: Dockerfile.voice
-    container_name: supervision-voice-pipeline
-    profiles: [voice]
-    environment:
-      <<: *keycloak-realm
-      ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
-      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
-      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
-      OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-      STT_MODEL: ${STT_MODEL:-small}
-      STT_DEVICE: ${STT_DEVICE:-cpu}
-      TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
-      VOICE_RTP_HOST: 0.0.0.0
-      VOICE_RTP_PORT: ${VOICE_RTP_PORT:-40000}
-      VOICE_METRICS_PORT: 9092
-      LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-1500}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    volumes:
-      - voice_models:/models
-    ports:
-      - "${VOICE_RTP_PORT:-40000}:40000/udp"
-      - "${VOICE_METRICS_PORT:-9092}:9092"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:9092/health',timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: unless-stopped
-    networks: [supervision-net]
-
-  # ──────────────────────────────  Observabilité  ──────────────────────────────
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: supervision-prometheus
-    profiles: [monitoring]
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
-      - "--web.enable-lifecycle"
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/healthy"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks: [supervision-net]
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: supervision-grafana
-    profiles: [monitoring]
-    environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: "false"
-      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: "5s"
-    volumes:
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
-    depends_on:
-      prometheus:
-        condition: service_healthy
-    restart: unless-stopped
-    networks: [supervision-net]
-
 networks:
   supervision-net:
     driver: bridge
+    name: supervision-net
 
 volumes:
   keycloak_db_data:
   mcp_audit:
-  asterisk_recordings:
-  ollama_models:
-  voice_models:
-  prometheus_data:
-  grafana_data:

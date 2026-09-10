@@ -5,9 +5,10 @@ validations manuelles sur softphones (Linphone / Zoiper).
 
 ## 1. Préparer Asterisk
 
+Asterisk tourne dans son propre conteneur (voir README « Composants externes ») :
+
 ```bash
-docker compose --profile asterisk up -d
-# (ou ./scripts/setup_test_asterisk.sh <conteneur> sur un Asterisk existant)
+./scripts/setup_test_asterisk.sh <conteneur_asterisk>
 ```
 
 L'extension `701` du dialplan répond par `Answer()` + `Echo()` — idéale pour
@@ -28,7 +29,7 @@ Paliers recommandés : `10` → `25` → `50` canaux.
   *Asterisk — canaux / appels* et *Latence par étape* (si le pipeline S2S tourne).
 * **En direct** :
   ```bash
-  watch -n1 'docker compose exec asterisk asterisk -rx "core show channels count"'
+  watch -n1 'docker exec <conteneur_asterisk> asterisk -rx "core show channels count"'
   ```
 * **Via l'outil MCP** : appeler `list_active_channels` / `get_trunk_utilization`
   pendant le test.

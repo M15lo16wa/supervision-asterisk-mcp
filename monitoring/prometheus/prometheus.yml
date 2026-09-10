@@ -1,5 +1,9 @@
 # Scrape des composants du système de supervision.
-# Les cibles sont résolues via le réseau docker-compose `supervision-net`.
+# Toutes les cibles sont des conteneurs joints au réseau `supervision-net`
+# (docker network connect supervision-net <conteneur>). Une cible absente est
+# simplement marquée "down" par Prometheus — sans effet sur les autres.
+# Le pipeline vocal (job voice-pipeline) doit tourner dans un conteneur nommé
+# `voice-pipeline` pour être résolu ; sinon adapter la cible ci-dessous.
 global:
   scrape_interval: 15s
   scrape_timeout: 10s
