@@ -1,0 +1,279 @@
+{
+  "server": "asterisk-mcp-supervision",
+  "version": "0.2.0",
+  "protocol": "MCP / JSON-RPC 2.0",
+  "generated_by": "scripts/export_tool_schemas.py",
+  "tools": [
+    {
+      "name": "analyze_call_quality",
+      "description": "Qualité RTP/RTCP d'un canal : gigue, perte, RTT et MOS estimé (modèle E).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "get_cdr_report",
+      "description": "Historique des appels (CDR) — journal temps réel bufferisé par le serveur.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 20,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "get_channel_info",
+      "description": "Détails d'un canal précis (nom, état, CLID, contexte/exten, application, durée).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "get_extension_status",
+      "description": "État des lignes / postes (hints du dialplan) — filtrable par contexte.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "get_queue_stats",
+      "description": "Statistiques des files d'attente (appels en attente, membres, SLA, temps d'attente).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "queue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "get_trunk_utilization",
+      "description": "Charge des trunks SIP : canaux actifs (entrants/sortants) vs capacité configurée.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "hangup_channel",
+      "description": "Libère (raccroche) un canal. Validation humaine obligatoire.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "list_active_channels",
+      "description": "Liste les canaux Asterisk actifs (état, appelant, contexte, durée).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "originate_call",
+      "description": "Initie un appel vers `endpoint` puis le route vers context/exten. Validation humaine obligatoire.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "exten": {
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "endpoint",
+          "exten"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "redirect_call",
+      "description": "Transfère un canal vers une autre destination (aveugle par défaut). Validation humaine obligatoire.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "attended": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "channel_id",
+          "destination"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
+      "name": "spy_channel",
+      "description": "Écoute discrète d'un appel en cours (ChanSpy).\n\n⚠️ ENCADREMENT LÉGAL : l'écoute et l'enregistrement de communications sont\nréglementés. `acknowledge_legal=true` est requis pour confirmer que vous\ndisposez d'une base légale et avez informé les personnes concernées.\n\nmode = \"listen\" (Superviseur) | \"whisper\" | \"barge\" (Admin — audio injecté,\nvalidation humaine obligatoire).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "target_channel": {
+            "type": "string"
+          },
+          "supervisor_endpoint": {
+            "type": "string"
+          },
+          "mode": {
+            "default": "listen",
+            "type": "string"
+          },
+          "acknowledge_legal": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "target_channel",
+          "supervisor_endpoint"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    }
+  ]
+}

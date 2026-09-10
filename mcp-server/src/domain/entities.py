@@ -126,6 +126,61 @@ class Extension:
 
 
 @dataclass(frozen=True)
+class QueueStats:
+    """Snapshot of an Asterisk call queue (AMI QueueSummary/QueueStatus)."""
+    name: str
+    calls_waiting: int
+    members: int
+    available_members: int
+    callers_completed: int
+    callers_abandoned: int
+    service_level_perf: float          # % answered within the SL threshold
+    average_hold_seconds: int
+    average_talk_seconds: int
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "calls_waiting": self.calls_waiting,
+            "members": self.members,
+            "available_members": self.available_members,
+            "callers_completed": self.callers_completed,
+            "callers_abandoned": self.callers_abandoned,
+            "service_level_perf": self.service_level_perf,
+            "average_hold_seconds": self.average_hold_seconds,
+            "average_talk_seconds": self.average_talk_seconds,
+        }
+
+
+@dataclass(frozen=True)
+class TrunkUtilization:
+    """Load of a SIP trunk: active channels vs. configured capacity."""
+    name: str
+    state: str                         # available / unavailable / unknown
+    active_channels: int
+    max_channels: int | None           # None = uncapped
+    inbound_channels: int
+    outbound_channels: int
+
+    @property
+    def utilization_percent(self) -> float:
+        if not self.max_channels:
+            return 0.0
+        return round(100.0 * self.active_channels / self.max_channels, 1)
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "state": self.state,
+            "active_channels": self.active_channels,
+            "max_channels": self.max_channels,
+            "inbound_channels": self.inbound_channels,
+            "outbound_channels": self.outbound_channels,
+            "utilization_percent": self.utilization_percent,
+        }
+
+
+@dataclass(frozen=True)
 class CallDetailRecord:
     """A Call Detail Record (CDR) line."""
     uniqueid: str

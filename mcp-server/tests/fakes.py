@@ -16,7 +16,7 @@ from src.domain.entities import (
     SpyResult,
     TransferResult,
 )
-from src.domain.exceptions import HitlConfirmationDenied, UnauthorizedAction
+from src.domain.exceptions import ChannelNotFound, HitlConfirmationDenied, UnauthorizedAction
 from src.domain.ports import (
     AsteriskGateway,
     DataSanitizer,
@@ -79,14 +79,28 @@ class FakeAsteriskGateway(AsteriskGateway):
     channels: list[Channel] = field(default_factory=list)
     extensions: list[Extension] = field(default_factory=list)
     cdr: list[CallDetailRecord] = field(default_factory=list)
+    queues: list = field(default_factory=list)
+    trunks: list = field(default_factory=list)
     quality: CallQuality | None = None
     calls: list[tuple] = field(default_factory=list)
 
     async def list_channels(self):
         return list(self.channels)
 
+    async def get_channel(self, channel_id: str):
+        for c in self.channels:
+            if channel_id in (c.name, c.id):
+                return c
+        raise ChannelNotFound(channel_id)
+
     async def list_extensions(self, context: str | None = None):
         return [e for e in self.extensions if context is None or e.context == context]
+
+    async def get_queues(self):
+        return list(self.queues)
+
+    async def get_trunks(self):
+        return list(self.trunks)
 
     async def get_recent_cdr(self, limit: int = 20):
         return list(self.cdr)[:limit]

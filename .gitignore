@@ -6,6 +6,11 @@
 *.key
 secrets/
 
+# Journaux d'audit / logs runtime
+logs/
+*.jsonl
+loadtest/loadtest_stats.csv
+
 # Python
 __pycache__/
 *.pyc

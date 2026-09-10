@@ -67,6 +67,14 @@ class Settings:
     mcp_transport: str = field(default_factory=lambda: _env("MCP_TRANSPORT", "streamable-http"))
     mcp_host: str = field(default_factory=lambda: _env("MCP_HOST", "0.0.0.0"))
     mcp_port: int = field(default_factory=lambda: _env_int("MCP_PORT", 8000))
+    # URL publique du serveur MCP — exposée dans la métadonnée OAuth de ressource
+    # protégée (RFC 9728) pour que le client MCP découvre Keycloak (OAuth 2.1 + PKCE).
+    mcp_public_url: str = field(default_factory=lambda: _env("MCP_PUBLIC_URL", ""))
+    # Portée du consentement humain : "pilotage" (défaut) ou "all" (tous les outils).
+    hitl_mode: str = field(default_factory=lambda: _env("MCP_HITL_MODE", "pilotage"))
+
+    # Audit
+    audit_log_path: str = field(default_factory=lambda: _env("AUDIT_LOG_PATH", "logs/audit.jsonl"))
 
     # Logging
     log_level: str = field(default_factory=lambda: _env("LOG_LEVEL", "INFO"))

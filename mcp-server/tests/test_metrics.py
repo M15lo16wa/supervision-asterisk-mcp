@@ -12,10 +12,15 @@ class _Security:
         require_role(token, role)
 
 
+class _Ctx:
+    request_id = "req-m"
+
+
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch):
     monkeypatch.setattr(tools, "_gateway", FakeAsteriskGateway(channels=[sample_channel()]))
     monkeypatch.setattr(tools, "_security", _Security())
+    monkeypatch.setenv("MCP_HITL_MODE", "pilotage")
 
 
 def _val(counter, **labels):
@@ -26,9 +31,9 @@ async def test_success_and_denial_are_counted():
     before_ok = _val(metrics.TOOL_CALLS, tool="list_active_channels", status="success")
     before_denied = _val(metrics.RBAC_DENIALS, tool="originate_call", required_role="admin")
 
-    r1 = await tools.list_active_channels(token=FakeToken(["operateur"]))
+    r1 = await tools.list_active_channels(_Ctx(), token=FakeToken(["operateur"]))
     assert r1["status"] == "success"
-    r2 = await tools.originate_call("PJSIP/1", "2", None, token=FakeToken(["operateur"]))
+    r2 = await tools.originate_call("PJSIP/1", "2", _Ctx(), token=FakeToken(["operateur"]))
     assert r2["error"] == "unauthorized"
 
     assert _val(metrics.TOOL_CALLS, tool="list_active_channels", status="success") == before_ok + 1
@@ -37,7 +42,7 @@ async def test_success_and_denial_are_counted():
 
 
 async def test_metrics_endpoint_renders_prometheus_text():
-    await tools.list_active_channels(token=FakeToken(["operateur"]))
+    await tools.list_active_channels(_Ctx(), token=FakeToken(["operateur"]))
     body, content_type = metrics.render()
     text = body.decode()
     assert "mcp_tool_calls_total" in text

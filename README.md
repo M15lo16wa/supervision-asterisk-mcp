@@ -65,29 +65,62 @@ AMI/ARI. Durée de vie : 5 minutes.
 
 ---
 
-## Outils MCP exposés
+## Outils MCP exposés (noms conformes B.4)
 
 | Outil | Rôle mini | HITL | Zone |
 |---|---|---|---|
-| `list_active_channels` | operateur | — | lecture |
-| `list_extensions` | operateur | — | lecture |
-| `get_call_records` | operateur | — | lecture |
-| `analyze_call_quality` | superviseur | — | analyse (MOS/RTCP, modèle E simplifié) |
-| `start_channel_spy` (`listen`) | superviseur | — | analyse |
-| `start_channel_spy` (`whisper` / `barge`) | admin | ✅ | pilotage |
-| `originate_call` | admin | ✅ | pilotage |
-| `hangup_channel` | admin | ✅ | pilotage |
-| `transfer_call` | admin | ✅ | pilotage |
+| `list_active_channels` | Opérateur | — | lecture |
+| `get_channel_info` | Opérateur | — | lecture |
+| `get_queue_stats` | Opérateur | — | lecture |
+| `get_extension_status` | Opérateur | — | lecture |
+| `get_cdr_report` | Superviseur | — | analyse |
+| `analyze_call_quality` | Superviseur | — | analyse (MOS/RTCP, modèle E) |
+| `get_trunk_utilization` | Superviseur | — | analyse |
+| `spy_channel` (`listen`) | Superviseur | — | analyse (+ `acknowledge_legal`) |
+| `spy_channel` (`whisper` / `barge`) | Admin | ✅ | pilotage (+ `acknowledge_legal`) |
+| `originate_call` | Admin | ✅ | pilotage |
+| `hangup_channel` | Admin | ✅ | pilotage |
+| `redirect_call` | Admin | ✅ | pilotage |
 
-Chaque outil : (1) `require_role(token, …)` en première ligne — la hiérarchie
-`operateur < superviseur < admin` est appliquée ; (2) confirmation HITL injectée
-comme dépendance pour le pilotage ; (3) sortie passée au `DataSanitizer`.
+Schémas JSON : [`docs/tool-schemas.json`](docs/tool-schemas.json)
+(régénérer : `python scripts/export_tool_schemas.py`).
 
-### Test de fumée
+Chaîne appliquée à chaque outil :
+
+1. **RBAC** `require_role(token, …)` en première ligne — hiérarchie `Opérateur < Superviseur < Admin`.
+2. **Consentement humain** — HITL (elicitation MCP, jamais une simple annotation
+   `destructiveHint`) sur le pilotage ; sur **tous** les outils si `MCP_HITL_MODE=all`.
+   `spy_channel` exige en plus `acknowledge_legal=true` et renvoie un avertissement
+   sur l'encadrement légal de l'écoute et de l'enregistrement.
+3. **Sortie assainie** — `DataSanitizer` (données Asterisk = entrées non fiables).
+4. **Journal d'audit** — chaque appel, refus RBAC et confirmation HITL est écrit en
+   JSON Lines (`AUDIT_LOG_PATH`, défaut `logs/audit.jsonl`) : acteur, outil,
+   paramètres (secrets masqués), résultat, `request_id`, horodatage UTC.
+5. **Métriques Prometheus** — `GET /metrics`.
+
+### Authentification (A.6)
+
+JWT Keycloak (OIDC) vérifié en Resource Server. `MCP_PUBLIC_URL` fait publier la
+**métadonnée OAuth de ressource protégée** (RFC 9728) : le client MCP y découvre
+Keycloak comme Authorization Server et enchaîne **OAuth 2.1 + PKCE**. Le jeton
+n'authentifie que la session MCP — jamais relayé à Asterisk (*no token passthrough*).
+
+### Démo & test — MCP Inspector (livrable A.7)
+
+```bash
+npx @modelcontextprotocol/inspector      # http://localhost:6274
+```
+
+Transport `Streamable HTTP`, URL `http://localhost:8000/mcp`, Bearer token.
+Parcours complet (supervision → pilotage avec validation humaine → écoute) :
+[`docs/mcp-inspector.md`](docs/mcp-inspector.md).
+
+### Test de fumée & charge
 
 ```bash
 ./scripts/get_token.sh admin_demo > /tmp/tok.json
 python scripts/smoke_mcp.py --token-file /tmp/tok.json --confirm oui
+./loadtest/run_loadtest.sh 127.0.0.1 701 50 5 15000   # SIPp, 50 canaux (B.7)
 ```
 
 ### Tester contre un Asterisk déjà en place (sans Keycloak)
@@ -101,11 +134,14 @@ MCP_AUTH_MODE=static python scripts/live_test_asterisk.py   # adapter AMI <-> As
 En mode `static`, trois jetons opaques remplacent Keycloak :
 `dev-operateur`, `dev-superviseur`, `dev-admin` (surcouche `MCP_STATIC_TOKENS`).
 
-> Validé sur un conteneur **Asterisk 20.6** : login AMI, `list_active_channels`
-> (canaux réels), `list_extensions` (hints), `originate`/`hangup`, capture CDR
-> temps réel, et la chaîne complète *client MCP → HTTP → auth → RBAC → HITL →
-> AMI* (RBAC refuse bien l'`originate_call` à un opérateur, l'accepte pour un
-> admin après confirmation).
+> Validé sur un conteneur **Asterisk 20.6** : login AMI, les 11 outils B.4
+> (`get_queue_stats`, `get_trunk_utilization`, `get_channel_info`… inclus),
+> `originate`/`hangup`, capture CDR temps réel, `spy_channel` (refus sans
+> `acknowledge_legal`, écoute + trace d'audit avec), et la chaîne complète
+> *client MCP → HTTP → auth → RBAC → HITL → AMI* (l'`originate_call` refusé à un
+> opérateur, accepté pour un admin après confirmation). Journal d'audit vérifié
+> (chaque action tracée), Prometheus scrappe `mcp-server`/`asterisk`, Grafana
+> charge le dashboard.
 
 ---
 
@@ -129,23 +165,27 @@ pytest -q
 ruff check src tests
 ```
 
-Les tests utilisent des doublures en mémoire (`tests/fakes.py`) : RBAC, sanitizer,
-HITL (accept/decline/cancel), cas d'usage (HITL réellement bloquant, sortie
-assainie), parsing AMI, endpointing VAD et budget de latence du pipeline S2S.
+Les tests (`pytest`, 58) utilisent des doublures en mémoire (`tests/fakes.py`) :
+RBAC hiérarchique, sanitizer, HITL (accept/decline/cancel), cas d'usage (HITL
+réellement bloquant, sortie assainie), **journal d'audit**, **métriques**,
+parsing AMI, endpointing VAD et budget de latence du pipeline S2S.
 
 ---
 
 ## Module 2 — Asterisk
 
-`asterisk/config/` fournit une configuration Asterisk 22 minimale :
+`asterisk/config/` fournit une configuration Asterisk 22 :
 
-* `pjsip.conf` — transport UDP + postes `1001`, `1002`, superviseur `1099` (codec `slin16` autorisé) ;
-* `extensions.conf` — appels internes `_10XX`, `hint` pour `list_extensions`,
-  `700 => Stasis(mcp-voice)` (assistant vocal), `701 => Echo()` (diagnostic) ;
-* `manager.conf` / `ari.conf` — comptes dédiés `mcp_ami` / `mcp_ari` ;
-* `cdr_manager.conf` — CDR émis en événements AMI `Cdr`, bufferisés côté serveur
-  (`get_call_records`) ;
-* `http.conf`, `rtp.conf` — ARI + plage RTP.
+* `pjsip.conf` — transport UDP + postes `1001`, `1002`, superviseur `1099`
+  (codec `slin16`) + **trunk sortant `trunk-out`** (registration + identify) ;
+* `queues.conf` — file d'attente `support` (2 membres) pour `get_queue_stats` ;
+* `extensions.conf` — appels internes `_10XX`, `hint` pour `get_extension_status`,
+  `700 => Stasis(mcp-voice)`, `701 => Echo()`, `800 => Queue(support)`,
+  `_0. => Dial(...@trunk-out)`, contexte `from-trunk` pour les entrants ;
+* `manager.conf` / `ari.conf` — comptes dédiés `mcp_ami` / `mcp_ari` (moindre privilège) ;
+* `cdr_manager.conf` — CDR en événements AMI `Cdr`, bufferisés (`get_cdr_report`) ;
+* `prometheus.conf` — `res_prometheus` (Basic Auth) pour `/metrics` ;
+* `http.conf`, `rtp.conf`, `modules.conf`.
 
 Qualité d'appel : `analyze_call_quality` lit `PJSIPShowChannelStats` (repli sur la
 variable `RTPAUDIOQOS`) et estime le **MOS** via le modèle E (ITU-T G.107)

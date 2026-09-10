@@ -68,11 +68,18 @@ def build_auth_provider():
             for tok, roles in _static_token_map().items()
         }
         return StaticTokenVerifier(tokens=tokens)
-    return JWTVerifier(
-        jwks_uri=settings.keycloak_jwks_url,
-        issuer=settings.keycloak_issuer,
-        algorithm="RS256",
-    )
+
+    kwargs: dict = {
+        "jwks_uri": settings.keycloak_jwks_url,
+        "issuer": settings.keycloak_issuer,
+        "algorithm": "RS256",
+    }
+    # base_url -> FastMCP publie la métadonnée OAuth de ressource protégée
+    # (RFC 9728) : le client MCP y découvre Keycloak comme Authorization Server
+    # et enchaîne le flux OAuth 2.1 + PKCE. Requis pour l'auto-découverte.
+    if settings.mcp_public_url:
+        kwargs["base_url"] = settings.mcp_public_url
+    return JWTVerifier(**kwargs)
 
 
 # Rétrocompat : ancien nom.

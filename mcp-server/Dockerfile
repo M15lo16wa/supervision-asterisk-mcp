@@ -18,8 +18,9 @@ COPY src/ ./src/
 
 EXPOSE 8000
 
-# Compte non-root
-RUN useradd --create-home --uid 10001 mcp && chown -R mcp:mcp /app
+# Compte non-root + répertoire du journal d'audit (monté en volume mcp_audit)
+RUN useradd --create-home --uid 10001 mcp \
+    && mkdir -p /app/logs && chown -R mcp:mcp /app
 USER mcp
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \

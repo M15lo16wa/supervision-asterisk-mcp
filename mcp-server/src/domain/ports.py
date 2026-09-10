@@ -20,9 +20,11 @@ from src.domain.entities import (
     Extension,
     HangupResult,
     OriginateResult,
+    QueueStats,
     SpyMode,
     SpyResult,
     TransferResult,
+    TrunkUtilization,
 )
 
 
@@ -42,19 +44,34 @@ class AsteriskGateway(ABC):
         ...
 
     @abstractmethod
+    async def get_channel(self, channel_id: str) -> Channel:
+        """Return one channel's details. Raises ChannelNotFound if absent."""
+        ...
+
+    @abstractmethod
     async def list_extensions(self, context: str | None = None) -> list[Extension]:
         """List dialplan extensions/hints and their device state."""
         ...
 
     @abstractmethod
-    async def get_recent_cdr(self, limit: int = 20) -> list[CallDetailRecord]:
-        """Return the most recent Call Detail Records."""
+    async def get_queues(self) -> list[QueueStats]:
+        """Return call-queue statistics (waiting calls, members, SLA, hold time)."""
         ...
 
     # ---- analyse ------------------------------------------------------------
     @abstractmethod
+    async def get_recent_cdr(self, limit: int = 20) -> list[CallDetailRecord]:
+        """Return the most recent Call Detail Records."""
+        ...
+
+    @abstractmethod
     async def get_channel_quality(self, channel_id: str) -> CallQuality:
         """Return RTP/RTCP quality metrics (jitter, loss, RTT, estimated MOS)."""
+        ...
+
+    @abstractmethod
+    async def get_trunks(self) -> list[TrunkUtilization]:
+        """Return per-trunk load (active vs. configured channels)."""
         ...
 
     # ---- pilotage --------------------------------------------------------------

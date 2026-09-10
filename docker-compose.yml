@@ -82,8 +82,15 @@ services:
       ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
       ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
       ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
+      ASTERISK_DEFAULT_CONTEXT: ${ASTERISK_DEFAULT_CONTEXT:-internal}
+      ASTERISK_TRUNKS: ${ASTERISK_TRUNKS:-trunk-out}
       MCP_AUTH_MODE: ${MCP_AUTH_MODE:-keycloak}
+      MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:-http://localhost:8000}
+      MCP_HITL_MODE: ${MCP_HITL_MODE:-pilotage}
+      AUDIT_LOG_PATH: /app/logs/audit.jsonl
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - mcp_audit:/app/logs
     ports:
       - "${MCP_PORT:-8000}:8000"
     depends_on:
@@ -239,6 +246,7 @@ networks:
 
 volumes:
   keycloak_db_data:
+  mcp_audit:
   asterisk_recordings:
   ollama_models:
   voice_models:

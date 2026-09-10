@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections import deque
 
 from panoramisk import Manager
@@ -26,9 +27,11 @@ from src.domain.entities import (
     ExtensionState,
     HangupResult,
     OriginateResult,
+    QueueStats,
     SpyMode,
     SpyResult,
     TransferResult,
+    TrunkUtilization,
 )
 from src.domain.exceptions import (
     AsteriskCommandError,
@@ -42,6 +45,18 @@ logger = logging.getLogger(__name__)
 _SPY_OPTIONS = {SpyMode.LISTEN: "q", SpyMode.WHISPER: "qw", SpyMode.BARGE: "qB"}
 
 
+def _env_list(name: str) -> list[str]:
+    return [p for p in os.getenv(name, "").replace(";", ",").split(",") if p.strip()]
+
+
+def _env_int_opt(name: str) -> int | None:
+    raw = os.getenv(name)
+    try:
+        return int(raw) if raw is not None else None
+    except ValueError:
+        return None
+
+
 def _g(msg, key: str, default: str = "") -> str:
     """Case-insensitive header access on a panoramisk Message or a plain dict."""
     try:
@@ -49,6 +64,20 @@ def _g(msg, key: str, default: str = "") -> str:
     except AttributeError:
         value = default
     return "" if value is None else str(value)
+
+
+def _int(value: str) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _float(value: str) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 class PanoramiskGateway(AsteriskGateway):
@@ -142,6 +171,36 @@ class PanoramiskGateway(AsteriskGateway):
             except Exception as e:
                 logger.warning("skipping unparseable channel event: %s", e)
         return channels
+
+    async def get_channel(self, channel_id: str) -> Channel:
+        messages = await self._send({"Action": "CoreShowChannels"}, as_list=True)
+        for msg in messages or []:
+            if _g(msg, "Event") != "CoreShowChannel":
+                continue
+            if channel_id in (_g(msg, "Channel"), _g(msg, "Uniqueid")):
+                return self._to_channel(msg)
+        raise ChannelNotFound(f"canal introuvable : {channel_id}")
+
+    async def get_queues(self) -> list[QueueStats]:
+        messages = await self._send({"Action": "QueueSummary"}, as_list=True)
+        queues: list[QueueStats] = []
+        for msg in messages or []:
+            if _g(msg, "Event") != "QueueSummary":
+                continue
+            queues.append(
+                QueueStats(
+                    name=_g(msg, "Queue"),
+                    calls_waiting=_int(_g(msg, "Callers")),
+                    members=_int(_g(msg, "LoggedIn")),
+                    available_members=_int(_g(msg, "Available")),
+                    callers_completed=_int(_g(msg, "Completed")),
+                    callers_abandoned=_int(_g(msg, "Abandoned")),
+                    service_level_perf=_float(_g(msg, "ServiceLevelPerf")),
+                    average_hold_seconds=_int(_g(msg, "HoldTime")),
+                    average_talk_seconds=_int(_g(msg, "TalkTime")),
+                )
+            )
+        return queues
 
     async def list_extensions(self, context: str | None = None) -> list[Extension]:
         messages = await self._send({"Action": "ExtensionStateList"}, as_list=True)
@@ -259,6 +318,55 @@ class PanoramiskGateway(AsteriskGateway):
             packets_lost=int(f("lp") or f("rlp")),
             packets_received=int(f("rxcount")),
         )
+
+    async def get_trunks(self) -> list[TrunkUtilization]:
+        """Charge des trunks. Les trunks sont ceux listés dans ASTERISK_TRUNKS
+        (sinon les endpoints dont le nom commence par 'trunk'). La charge est
+        dérivée des canaux actifs — pas d'action AMI fragile requise."""
+        wanted = _env_list("ASTERISK_TRUNKS")
+        channels = await self.list_channels()
+
+        if not wanted:
+            wanted = sorted({
+                c.name.split("/", 1)[1].rsplit("-", 1)[0]
+                for c in channels
+                if c.name.startswith("PJSIP/trunk")
+            })
+
+        trunks: list[TrunkUtilization] = []
+        for name in wanted:
+            prefix = f"PJSIP/{name}-"
+            active = [c for c in channels if c.name.startswith(prefix)]
+            inbound = sum(
+                1 for c in active
+                if (c.context or "").lower().startswith(("from-trunk", "from-pstn"))
+            )
+            state = await self._trunk_state(name)
+            trunks.append(
+                TrunkUtilization(
+                    name=name,
+                    state=state,
+                    active_channels=len(active),
+                    max_channels=_env_int_opt(f"ASTERISK_TRUNK_MAX_{name.upper().replace('-', '_')}")
+                    or _env_int_opt(f"ASTERISK_TRUNK_MAX_{name.upper()}"),
+                    inbound_channels=inbound,
+                    outbound_channels=len(active) - inbound,
+                )
+            )
+        return trunks
+
+    async def _trunk_state(self, name: str) -> str:
+        """Best-effort : état du terminal via une action ciblée (jamais bloquant)."""
+        try:
+            resp = await self._send(
+                {"Action": "PJSIPShowEndpoint", "Endpoint": name}, as_list=True
+            )
+        except (AsteriskCommandError, AsteriskConnectionError):
+            return "unknown"
+        for msg in resp or []:
+            if _g(msg, "Event") == "EndpointDetail":
+                return _g(msg, "DeviceState") or "unknown"
+        return "unknown"
 
     # ------------------------------------------------------------------- pilotage
     async def originate(self, endpoint: str, context: str, exten: str) -> OriginateResult:

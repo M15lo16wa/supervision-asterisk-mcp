@@ -114,6 +114,17 @@ max_contacts = 1
 EOF
 docker exec "$C" bash -c 'grep -q pjsip_mcp.conf /etc/asterisk/pjsip.conf || echo "#include \"pjsip_mcp.conf\"" >> /etc/asterisk/pjsip.conf'
 
+# --- File d'attente de démo (get_queue_stats) ---
+docker exec -i "$C" tee /etc/asterisk/queues_mcp.conf >/dev/null <<'EOF'
+[support]
+strategy = leastrecent
+timeout = 15
+servicelevel = 30
+member => PJSIP/1001,0,Agent 1001
+member => PJSIP/1002,0,Agent 1002
+EOF
+docker exec "$C" bash -c 'grep -q queues_mcp.conf /etc/asterisk/queues.conf 2>/dev/null || echo "#include \"queues_mcp.conf\"" >> /etc/asterisk/queues.conf'
+
 # --- Dialplan de test ---
 docker exec -i "$C" tee /etc/asterisk/extensions_mcp.conf >/dev/null <<'EOF'
 [mcp-internal]
@@ -128,6 +139,9 @@ exten => 700,1,Answer()
 exten => 701,1,Answer()
  same => n,Echo()
  same => n,Hangup()
+exten => 800,1,Answer()
+ same => n,Queue(support,t,,,60)
+ same => n,Hangup()
 EOF
 docker exec "$C" bash -c 'grep -q extensions_mcp.conf /etc/asterisk/extensions.conf || echo "#include \"extensions_mcp.conf\"" >> /etc/asterisk/extensions.conf'
 
@@ -135,6 +149,7 @@ docker exec "$C" bash -c 'grep -q extensions_mcp.conf /etc/asterisk/extensions.c
 docker exec "$C" asterisk -rx "module reload manager"
 docker exec "$C" asterisk -rx "module reload cdr_manager.so" || true
 docker exec "$C" asterisk -rx "module reload res_prometheus.so" || true
+docker exec "$C" asterisk -rx "module reload app_queue.so" || true
 docker exec "$C" asterisk -rx "module reload res_ari.so"
 docker exec "$C" asterisk -rx "module reload res_pjsip.so"
 docker exec "$C" asterisk -rx "dialplan reload"
@@ -145,4 +160,6 @@ docker exec "$C" asterisk -rx "manager show users"
 docker exec "$C" asterisk -rx "ari show users"
 docker exec "$C" asterisk -rx "http show status" | grep -i server
 docker exec "$C" asterisk -rx "pjsip show endpoints" | grep -E "Endpoint:|Not in use|Unavailable" || true
-echo "==> OK"
+docker exec "$C" asterisk -rx "queue show support" || true
+docker exec "$C" asterisk -rx "module show like res_prometheus" | tail -1
+echo "==> OK  (AMI mcp_ami/changeme_ami · ARI mcp_ari/changeme_ari · /metrics prometheus/changeme_metrics)"
