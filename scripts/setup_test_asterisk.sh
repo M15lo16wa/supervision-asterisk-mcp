@@ -36,7 +36,7 @@ allowed_origins = *
 [mcp_ari]
 type = user
 read_only = no
-password = changeme_ari
+password = 780HNl27IF2gKx2aBy3B7CeKbqXHLyVg8sAUS9x8Qqw
 password_format = plain
 EOF
 
@@ -47,7 +47,7 @@ enabled = yes
 core_metrics_enabled = yes
 uri = metrics
 auth_username = prometheus
-auth_password = changeme_metrics
+auth_password = 2AnWpI4zKJe_wgUKE6uhvj18gjvL-MhVH4UcqpbxStY
 EOF
 
 # --- CDR temps réel via AMI ---
@@ -63,7 +63,7 @@ docker exec "$C" sed -i 's/^bindaddr *= *127\.0\.0\.1/bindaddr = 0.0.0.0/' /etc/
 docker exec "$C" bash -c 'grep -q "manager.d" /etc/asterisk/manager.conf || echo "#include \"manager.d/*.conf\"" >> /etc/asterisk/manager.conf'
 docker exec -i "$C" tee /etc/asterisk/manager.d/mcp.conf >/dev/null <<'EOF'
 [mcp_ami]
-secret = changeme_ami
+secret = msS0swB2PjjVtfJkEFJLpMYxp1VngJnXvkSOhRVB290
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 permit = 10.0.0.0/255.0.0.0

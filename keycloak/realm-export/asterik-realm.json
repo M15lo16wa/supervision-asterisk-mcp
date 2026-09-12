@@ -1,6 +1,6 @@
 {
   "id": "b60584b7-b700-4114-a2e1-16eb31ea05c8",
-  "realm": "asterik",
+  "realm": "asterisk",
   "notBefore": 0,
   "defaultSignatureAlgorithm": "RS256",
   "revokeRefreshToken": false,
@@ -45,12 +45,11 @@
   "quickLoginCheckMilliSeconds": 1000,
   "maxDeltaTimeSeconds": 43200,
   "failureFactor": 30,
-  "maxSecondaryAuthFailures": 0,
   "roles": {
     "realm": [
       {
         "id": "817fe3ca-7e11-40ad-8909-a99a37897bc1",
-        "name": "default-roles-asterik",
+        "name": "default-roles-asterisk",
         "description": "${role_default-roles}",
         "composite": true,
         "composites": {
@@ -472,7 +471,7 @@
   "groups": [],
   "defaultRole": {
     "id": "817fe3ca-7e11-40ad-8909-a99a37897bc1",
-    "name": "default-roles-asterik",
+    "name": "default-roles-asterisk",
     "description": "${role_default-roles}",
     "composite": true,
     "clientRole": false,
@@ -549,13 +548,13 @@
       "clientId": "account",
       "name": "${client_account}",
       "rootUrl": "${authBaseUrl}",
-      "baseUrl": "/realms/asterik/account/",
+      "baseUrl": "/realms/asterisk/account/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/realms/asterik/account/*"
+        "/realms/asterisk/account/*"
       ],
       "webOrigins": [],
       "notBefore": 0,
@@ -596,13 +595,13 @@
       "clientId": "account-console",
       "name": "${client_account-console}",
       "rootUrl": "${authBaseUrl}",
-      "baseUrl": "/realms/asterik/account/",
+      "baseUrl": "/realms/asterisk/account/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/realms/asterik/account/*"
+        "/realms/asterisk/account/*"
       ],
       "webOrigins": [],
       "notBefore": 0,
@@ -781,13 +780,13 @@
       "clientId": "security-admin-console",
       "name": "${client_security-admin-console}",
       "rootUrl": "${authAdminUrl}",
-      "baseUrl": "/admin/asterik/console/",
+      "baseUrl": "/admin/asterisk/console/",
       "surrogateAuthRequired": false,
       "enabled": true,
       "alwaysDisplayInConsole": false,
       "clientAuthenticatorType": "client-secret",
       "redirectUris": [
-        "/admin/asterik/console/*"
+        "/admin/asterisk/console/*"
       ],
       "webOrigins": [
         "+"
@@ -2713,7 +2712,7 @@
         }
       ],
       "realmRoles": [
-        "default-roles-asterik",
+        "default-roles-asterisk",
         "admin"
       ]
     },
@@ -2733,7 +2732,7 @@
         }
       ],
       "realmRoles": [
-        "default-roles-asterik",
+        "default-roles-asterisk",
         "superviseur"
       ]
     },
@@ -2753,7 +2752,7 @@
         }
       ],
       "realmRoles": [
-        "default-roles-asterik",
+        "default-roles-asterisk",
         "operateur"
       ]
     }

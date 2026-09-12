@@ -47,7 +47,7 @@ class Settings:
 
     # Keycloak
     keycloak_base_url: str = field(default_factory=lambda: _env("KEYCLOAK_BASE_URL", "http://localhost:8080"))
-    keycloak_realm: str = field(default_factory=lambda: _env("KEYCLOAK_REALM", "asterik"))
+    keycloak_realm: str = field(default_factory=lambda: _env("KEYCLOAK_REALM", "asterisk"))
     keycloak_client_id: str = field(default_factory=lambda: _env("KEYCLOAK_CLIENT_ID", "mcp-server"))
 
     # Asterisk AMI

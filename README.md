@@ -131,7 +131,7 @@ MCP_AUTH_MODE=static PYTHONPATH=mcp-server python scripts/live_test_asterisk.py
 
 ### 3. Obtenir un jeton
 
-Comptes de test (realm `asterik`, mot de passe `admin`) :
+Comptes de test (realm `asterisk`, mot de passe `admin`) :
 
 | Utilisateur | Rôle | Peut |
 |---|---|---|
@@ -286,7 +286,7 @@ mcp-server/
   Dockerfile, Dockerfile.voice, pyproject.toml
 asterisk/config/    pjsip, extensions, manager, ari, queues, cdr_manager,
                     prometheus, http, rtp, modules
-keycloak/realm-export/asterik-realm.json    (client mcp-server + 3 users)
+keycloak/realm-export/asterisk-realm.json    (client mcp-server + 3 users)
 monitoring/          prometheus.yml, grafana/ (datasource + dashboard)
 loadtest/           scénario SIPp + procédure
 scripts/            get_token, smoke_mcp, setup_test_asterisk, live_test_asterisk,
@@ -322,7 +322,7 @@ docs/               tool-schemas.json, mcp-inspector.md
 | `MCP_PUBLIC_URL` | `http://localhost:8000` | métadonnée OAuth de ressource protégée (PKCE) |
 | `MCP_HITL_MODE` | `pilotage` | `pilotage` \| `all` |
 | `AUDIT_LOG_PATH` | `logs/audit.jsonl` | journal d'audit (volume `mcp_audit` en Docker) |
-| `KEYCLOAK_REALM` / `KEYCLOAK_CLIENT_ID` | `asterik` / `mcp-server` | doivent correspondre au realm importé |
+| `KEYCLOAK_REALM` / `KEYCLOAK_CLIENT_ID` | `asterisk` / `mcp-server` | doivent correspondre au realm importé |
 | `ASTERISK_HOST` / `ASTERISK_AMI_PORT` | `asterisk` / `5038` | conteneur Asterisk externe (joint à `supervision-net`) |
 | `ASTERISK_AMI_USER` / `ASTERISK_AMI_SECRET` | `mcp_ami` / `changeme_ami` | compte AMI |
 | `ASTERISK_ARI_BASE_URL` / `ASTERISK_ARI_USER` / `ASTERISK_ARI_PASSWORD` | `http://asterisk:8088` / `mcp_ari` / `changeme_ari` | ARI |

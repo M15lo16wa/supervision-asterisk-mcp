@@ -4,9 +4,9 @@
 #   ./scripts/get_token.sh operateur_demo
 #   ./scripts/get_token.sh admin_demo | tee /tmp/admin_token.json
 #
-# Variables (défauts alignés sur .env.example / le realm asterik) :
+# Variables (défauts alignés sur .env.example / le realm asterisk) :
 #   KEYCLOAK_URL   http://localhost:8080
-#   REALM          asterik
+#   REALM          asterisk
 #   CLIENT_ID      mcp-server
 #   CLIENT_SECRET  dev-only-mcp-server-secret-CHANGE-ME
 #   PASSWORD       admin
@@ -14,7 +14,7 @@ set -euo pipefail
 
 USER="${1:-operateur_demo}"
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8080}"
-REALM="${REALM:-asterik}"
+REALM="${REALM:-asterisk}"
 CLIENT_ID="${CLIENT_ID:-mcp-server}"
 CLIENT_SECRET="${CLIENT_SECRET:-dev-only-mcp-server-secret-CHANGE-ME}"
 PASSWORD="${PASSWORD:-admin}"
