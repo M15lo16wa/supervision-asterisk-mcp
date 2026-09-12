@@ -189,20 +189,48 @@ python -m src.voice.runner
 Côté Asterisk, le dialplan `700 => Stasis(mcp-voice)` route l'appel vers le
 pipeline. `python -m src.voice.runner` expose ses métriques sur `:9092/metrics`.
 
-### 6. Observabilité (optionnel)
+### 6. Observabilité — Ollama, Prometheus, Grafana
 
-Prometheus et Grafana tournent en **conteneurs externes**. Config prête :
-
-* Prometheus — monter [`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml)
-  (jobs `mcp-server`, `voice-pipeline`, `asterisk`, `ollama`) ; joindre le
-  conteneur à `supervision-net`.
-* Grafana — monter [`monitoring/grafana/provisioning`](monitoring/grafana/provisioning)
-  et [`monitoring/grafana/dashboards`](monitoring/grafana/dashboards) → datasource
-  + dashboard « Supervision Asterisk MCP » chargés automatiquement.
+Ces trois services sont orchestrés par une stack **dédiée et autonome**,
+séparée du socle (`monitoring/docker-compose.yml`), mais rattachée au même
+réseau Docker `supervision-net`.
 
 ```bash
-docker network connect supervision-net <conteneur_prometheus>
-docker network connect supervision-net <conteneur_grafana>
+cd monitoring
+cp .env.example .env          # ajuster les ports/identifiants si besoin
+docker compose up -d
+docker compose ps
+```
+
+| Service | URL |
+|---|---|
+| Ollama | http://localhost:11434 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin / `GRAFANA_ADMIN_PASSWORD`) |
+
+Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
+- `asterisk-server:8088` (`res_prometheus`, Basic Auth `prometheus` / `changeme_metrics`)
+- `supervision-mcp-server:8000` (`/metrics`, exposé par le serveur MCP lui-même)
+
+Grafana charge automatiquement la datasource Prometheus et les dashboards du
+dossier `monitoring/grafana/dashboards/` via provisioning.
+
+> Prérequis : le conteneur Asterisk doit être sur `supervision-net` pour que
+> Prometheus puisse le résoudre par son nom (cf. section 2 ci-dessus).
+
+**Intégration Keycloak (optionnelle) :** pour que Grafana délègue son
+authentification au même Keycloak que le reste du système (cohérent avec le
+rapport §6.4), créez un client OIDC `grafana` dans Keycloak (confidentiel,
+redirect URI `http://localhost:3000/login/generic_oauth`), puis dans
+`monitoring/.env` :
+
+```dotenv
+GRAFANA_OIDC_ENABLED=true
+GRAFANA_OIDC_CLIENT_SECRET=<secret_reel_copie_depuis_keycloak>
+```
+
+```bash
+docker compose up -d grafana    # recharger avec la nouvelle config
 ```
 
 ### 7. Charge (SIPp)
@@ -232,25 +260,38 @@ En mode `static` (sans Keycloak), trois jetons opaques suffisent :
 personnalisables via `MCP_STATIC_TOKENS`).
 
 ---
+## Composants externes et stacks additionnelles
 
-## Composants externes
+Le socle (`docker-compose.yml` racine) n'orchestre que **PostgreSQL +
+Keycloak + serveur MCP**. Deux catégories de briques complètent le système :
 
-Ce dépôt n'orchestre que **PostgreSQL + Keycloak + serveur MCP**. Les briques
-suivantes sont fournies par des **conteneurs séparés déjà présents sur la
-machine**, connectés au réseau `supervision-net` :
+### Reste externe (conteneur déjà présent sur la machine, à connecter manuellement)
 
 | Brique | Rôle | Config fournie ici |
 |---|---|---|
 | **Asterisk 20/22** | PBX (AMI/ARI/Stasis) | `asterisk/config/` + `scripts/setup_test_asterisk.sh` |
-| **Ollama** | LLM local du pipeline S2S | `OLLAMA_MODEL` (défaut `qwen2.5:3b-instruct`) |
-| **Prometheus** | collecte des métriques | `monitoring/prometheus/prometheus.yml` |
-| **Grafana** | dashboards | `monitoring/grafana/` (datasource + dashboard) |
 
 ```bash
-docker network connect supervision-net <conteneur>
+docker network connect supervision-net <nom_conteneur_asterisk>
 ```
 
----
+### Gérées par une stack dédiée (`monitoring/docker-compose.yml`)
+
+| Brique | Rôle | Config fournie ici |
+|---|---|---|
+| **Ollama** | LLM local du pipeline S2S | `monitoring/.env` (`OLLAMA_MODEL`, défaut `qwen2.5:7b`) |
+| **Prometheus** | collecte des métriques | `monitoring/prometheus/prometheus.yml` |
+| **Grafana** | dashboards | `monitoring/grafana/provisioning/` (datasource + dashboards) |
+
+```bash
+cd monitoring
+cp .env.example .env
+docker compose up -d
+```
+
+Cette stack se rattache au réseau `supervision-net` créé par le socle
+(`external: true` dans `monitoring/docker-compose.yml`) — lancez donc toujours
+le compose racine **avant** celui de `monitoring/`.
 
 ## Architecture
 
