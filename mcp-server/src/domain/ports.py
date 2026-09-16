@@ -159,14 +159,33 @@ class SpeechToText(ABC):
 
 
 class LanguageModel(ABC):
-    """Port: generate an assistant reply from a user utterance."""
+    """Port: generate a reply from a user prompt (voice S2S or supervisor chat)."""
 
     @abstractmethod
-    async def reply(self, prompt: str, history: list[dict] | None = None) -> str:
+    async def reply(
+        self,
+        prompt: str,
+        history: list[dict] | None = None,
+        *,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> str:
+        """Reply to ``prompt``. Optional overrides fall back on the adapter defaults.
+
+        ``history`` is the ordered list of ``{"role", "content"}`` turns (user /
+        assistant) from previous calls of the same conversation.
+        """
         ...
 
     async def stream_reply(  # pragma: no cover - default wraps reply()
-        self, prompt: str, history: list[dict] | None = None
+        self,
+        prompt: str,
+        history: list[dict] | None = None,
+        *,
+        system_prompt: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
         yield await self.reply(prompt, history)
 

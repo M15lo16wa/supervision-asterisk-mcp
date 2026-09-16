@@ -204,6 +204,63 @@
           "expr": "sum(rate(ollama_request_duration_seconds_count[5m]))" }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } }, "overrides": [] }
+    },
+    {
+      "type": "row",
+      "title": "LLM superviseur (prompts)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "id": 103
+    },
+    {
+      "type": "stat",
+      "title": "Appels LLM / min",
+      "id": 14,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(mcp_llm_calls_total[5m])) * 60" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latence LLM p95",
+      "id": 15,
+      "gridPos": { "h": 4, "w": 9, "x": 6, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(mcp_llm_duration_seconds_bucket[5m])) by (le))" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s", "custom": { "fillOpacity": 5 },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "red", "value": 3.0 }
+          ] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Erreurs LLM (1h)",
+      "id": 16,
+      "gridPos": { "h": 4, "w": 9, "x": 15, "y": 44 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A",
+          "expr": "sum(increase(mcp_llm_calls_total{status=\"error\"}[1h]))" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "red", "value": 1 }
+          ] }
+        },
+        "overrides": []
+      }
     }
   ]
 }

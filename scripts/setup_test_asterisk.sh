@@ -41,13 +41,15 @@ password_format = plain
 EOF
 
 # --- Métriques Prometheus (res_prometheus, Basic Auth) ---
-docker exec -i "$C" tee /etc/asterisk/prometheus.conf >/dev/null <<'EOF'
+# Mot de passe aligné sur monitoring/.env & .env racine (ASTERISK_METRICS_PASSWORD).
+METRICS_PASSWORD="${ASTERISK_METRICS_PASSWORD:-2AnWpI4zKJe_wgUKE6uhvj18gjvL-MhVH4UcqpbxStY}"
+docker exec -i "$C" tee /etc/asterisk/prometheus.conf >/dev/null <<EOF
 [general]
 enabled = yes
 core_metrics_enabled = yes
 uri = metrics
 auth_username = prometheus
-auth_password = 2AnWpI4zKJe_wgUKE6uhvj18gjvL-MhVH4UcqpbxStY
+auth_password = $METRICS_PASSWORD
 EOF
 
 # --- CDR temps réel via AMI ---
@@ -59,11 +61,13 @@ EOF
 docker exec "$C" bash -c 'grep -q "^enable *= *yes" /etc/asterisk/cdr.conf || sed -i "s/^enable *=.*/enable = yes/" /etc/asterisk/cdr.conf'
 
 # --- AMI ---
+# Secret aligné sur Asterisk (manager.conf) et .env (ASTERISK_AMI_SECRET).
+AMI_SECRET="${ASTERISK_AMI_SECRET:-msS0swB2PjjVtfJkEFJLpMYxp1VngJnXvkSOhRVB290}"
 docker exec "$C" sed -i 's/^bindaddr *= *127\.0\.0\.1/bindaddr = 0.0.0.0/' /etc/asterisk/manager.conf
 docker exec "$C" bash -c 'grep -q "manager.d" /etc/asterisk/manager.conf || echo "#include \"manager.d/*.conf\"" >> /etc/asterisk/manager.conf'
-docker exec -i "$C" tee /etc/asterisk/manager.d/mcp.conf >/dev/null <<'EOF'
+docker exec -i "$C" tee /etc/asterisk/manager.d/mcp.conf >/dev/null <<EOF
 [mcp_ami]
-secret = msS0swB2PjjVtfJkEFJLpMYxp1VngJnXvkSOhRVB290
+secret = $AMI_SECRET
 deny = 0.0.0.0/0.0.0.0
 permit = 127.0.0.1/255.255.255.255
 permit = 10.0.0.0/255.0.0.0
@@ -162,4 +166,5 @@ docker exec "$C" asterisk -rx "http show status" | grep -i server
 docker exec "$C" asterisk -rx "pjsip show endpoints" | grep -E "Endpoint:|Not in use|Unavailable" || true
 docker exec "$C" asterisk -rx "queue show support" || true
 docker exec "$C" asterisk -rx "module show like res_prometheus" | tail -1
-echo "==> OK  (AMI mcp_ami/changeme_ami · ARI mcp_ari/changeme_ari · /metrics prometheus/changeme_metrics)"
+echo "==> OK  (AMI mcp_ami/$AMI_SECRET · ARI mcp_ari/780HNl27IF2gKx2aBy3B7CeKbqXHLyVg8sAUS9x8Qqw · /metrics prometheus/$METRICS_PASSWORD)"
+echo "==> Reporter ces valeurs dans .env (ASTERISK_AMI_SECRET / ASTERISK_ARI_PASSWORD / ASTERISK_METRICS_PASSWORD)"

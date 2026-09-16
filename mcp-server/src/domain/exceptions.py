@@ -32,6 +32,11 @@ class AsteriskCommandError(DomainException):
     pass
 
 
+class LlmUnavailableError(DomainException):
+    """Raised when the local language model (Ollama) is unreachable or fails."""
+    pass
+
+
 class VoicePipelineError(DomainException):
     """Raised when the Speech-to-Speech pipeline cannot process a turn."""
     pass

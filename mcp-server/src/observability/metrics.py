@@ -63,6 +63,15 @@ ACTIVE_CHANNELS = Gauge(
     "mcp_active_channels", "Canaux actifs vus au dernier list_active_channels"
 )
 
+# ── LLM superviseur (llm_chat) ────────────────────────────────────────────────
+LLM_CALLS = Counter(
+    "mcp_llm_calls_total", "Appels au LLM local (Ollama)", ["model", "status"]
+)
+LLM_DURATION = Histogram(
+    "mcp_llm_duration_seconds", "Latence d'une réponse LLM", ["model"],
+    buckets=_LATENCY_BUCKETS,
+)
+
 # ── pipeline vocal ───────────────────────────────────────────────────────────
 VOICE_TURNS = Counter(
     "voice_turns_total", "Tours du pipeline Speech-to-Speech", ["within_budget"]
@@ -117,6 +126,21 @@ def asterisk_error(tool: str, kind: str) -> None:
 
 def observe_active_channels(count: int) -> None:
     ACTIVE_CHANNELS.set(count)
+
+
+# ── helpers LLM superviseur ───────────────────────────────────────────────────
+@contextmanager
+def llm_timer(model: str):
+    """Chronomètre un appel LLM (le statut est posé à part)."""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        LLM_DURATION.labels(model=model).observe(time.perf_counter() - start)
+
+
+def llm_result(model: str, status: str) -> None:
+    LLM_CALLS.labels(model=model, status=status).inc()
 
 
 # ── helpers pipeline vocal ───────────────────────────────────────────────────

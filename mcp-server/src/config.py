@@ -41,6 +41,35 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+@dataclass(frozen=True)
+class LlmSettings:
+    """Configuration de l'outil superviseur `llm_chat` (Module 2).
+
+    Réutilise Ollama comme modèle local — mêmes variables que le pipeline vocal
+    S2S (OLLAMA_BASE_URL, OLLAMA_MODEL), mais un prompt système et des limites
+    dédiés à la supervision.
+    """
+
+    base_url: str = field(default_factory=lambda: _env("OLLAMA_BASE_URL", "http://localhost:11434"))
+    model: str = field(default_factory=lambda: _env("OLLAMA_MODEL", "qwen2.5:3b-instruct"))
+    system_prompt: str = field(default_factory=lambda: _env(
+        "LLM_SYSTEM_PROMPT",
+        "Tu es l'assistant superviseur d'un PBX Asterisk. Réponds en français, "
+        "de façon factuelle et concise, en t'appuyant uniquement sur les données fournies.",
+    ))
+    temperature: float = field(default_factory=lambda: _env_float("LLM_TEMPERATURE", 0.3))
+    num_predict: int = field(default_factory=lambda: _env_int("LLM_NUM_PREDICT", 512))
+    timeout_s: int = field(default_factory=lambda: _env_int("LLM_TIMEOUT_S", 60))
+    max_history: int = field(default_factory=lambda: _env_int("LLM_MAX_HISTORY", 8))
+
+
 @dataclass(frozen=True)
 class Settings:
     """Immutable settings snapshot, built from the environment at import time."""
@@ -78,6 +107,9 @@ class Settings:
 
     # Logging
     log_level: str = field(default_factory=lambda: _env("LOG_LEVEL", "INFO"))
+
+    # LLM superviseur (prompts)
+    llm: LlmSettings = LlmSettings()
 
     @property
     def keycloak_issuer(self) -> str:

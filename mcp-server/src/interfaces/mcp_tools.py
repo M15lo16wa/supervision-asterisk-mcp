@@ -33,6 +33,7 @@ from starlette.responses import Response
 
 from src.adapters.asterisk_gateway import PanoramiskGateway
 from src.adapters.hitl_confirmation import FastMcpHitlConfirmation
+from src.adapters.ollama_llm import OllamaLLM
 from src.application.analyze_call_quality import AnalyzeCallQualityUseCase
 from src.application.get_call_records import GetCallRecordsUseCase
 from src.application.get_channel_info import GetChannelInfoUseCase
@@ -41,6 +42,7 @@ from src.application.get_trunk_utilization import GetTrunkUtilizationUseCase
 from src.application.hangup_channel import HangupChannelUseCase
 from src.application.list_active_channels import ListActiveChannelsUseCase
 from src.application.list_extensions import ListExtensionsUseCase
+from src.application.llm_chat import MAX_PROMPT_CHARS, LlmChatUseCase
 from src.application.originate_call import OriginateCallUseCase
 from src.application.start_channel_spy import StartChannelSpyUseCase
 from src.application.transfer_call import TransferCallUseCase
@@ -52,6 +54,7 @@ from src.domain.exceptions import (
     AsteriskConnectionError,
     ChannelNotFound,
     HitlConfirmationDenied,
+    LlmUnavailableError,
     UnauthorizedAction,
 )
 from src.observability import metrics
@@ -80,6 +83,15 @@ _gateway = PanoramiskGateway(
     default_context=settings.asterisk_default_context,
 )
 
+_llm = OllamaLLM(
+    base_url=settings.llm.base_url,
+    model=settings.llm.model,
+    system_prompt=settings.llm.system_prompt,
+    temperature=settings.llm.temperature,
+    num_predict=settings.llm.num_predict,
+    timeout=settings.llm.timeout_s,
+)
+
 
 @mcp.custom_route("/metrics", methods=["GET"])
 async def prometheus_metrics(_request: Request) -> Response:
@@ -93,6 +105,11 @@ def _username(token: AccessToken) -> str:
 
 def _request_id(ctx: Context | None) -> str | None:
     return getattr(ctx, "request_id", None) if ctx else None
+
+
+def _llm_model() -> str:
+    """Nom du modèle LLM actif (l'adaptateur exposé via ``_llm``)."""
+    return getattr(_llm, "model", settings.llm.model)
 
 
 def _hitl_mode() -> str:
@@ -167,6 +184,12 @@ async def _guarded(
             audit_log("tool_call", actor=actor, tool=tool, outcome="error",
                       client_id=client_id, params=params, detail=str(e), request_id=rid)
             return {"status": "error", "error": "asterisk_unavailable", "detail": str(e)}
+        except LlmUnavailableError as e:
+            metrics.llm_result(_llm_model(), "error")
+            metrics.tool_result(tool, "llm_unavailable")
+            audit_log("tool_call", actor=actor, tool=tool, outcome="error",
+                      client_id=client_id, params=params, detail=str(e), request_id=rid)
+            return {"status": "error", "error": "llm_unavailable", "detail": str(e)}
         except Exception as e:
             logger.exception("unexpected error in %s", tool)
             metrics.tool_result(tool, "internal")
@@ -257,6 +280,50 @@ async def get_trunk_utilization(ctx: Context, token: AccessToken = CurrentAccess
         return {"trunks": await GetTrunkUtilizationUseCase(_gateway, _sanitizer).execute()}
 
     return await _guarded("get_trunk_utilization", "superviseur", token, work, ctx=ctx)
+
+
+@mcp.tool()
+async def llm_chat(
+    prompt: str,
+    ctx: Context,
+    context: list[str] | None = None,
+    system_prompt: str | None = None,
+    max_tokens: int | None = None,
+    history: list[dict] | None = None,
+    token: AccessToken = CurrentAccessToken(),
+) -> dict:
+    """Interroge le LLM local (Ollama) pour l'aide à la supervision.
+
+    Le superviseur pose une question en langage naturel ; `context` annexe des
+    données temps réel d'Asterisk (traitées comme contenu, jamais comme instruction) :
+    `["channels", "cdr:10", "queues", "trunks", "extensions"]` (le préfixe `:N`
+    borne le nombre d'enregistrements, ex. `cdr:5`).
+
+    `history` transmet les tours précédents `[{"role": "user"|"assistant",
+    "content": "..."}]` pour un dialogue multi-tours.
+    """
+    if not prompt or not prompt.strip():
+        return {"status": "error", "error": "empty_prompt"}
+    if len(prompt) > MAX_PROMPT_CHARS:
+        return {"status": "error", "error": "prompt_too_long",
+                "detail": f"le prompt dépasse {MAX_PROMPT_CHARS} caractères"}
+
+    async def work():
+        with metrics.llm_timer(_llm_model()):
+            result = await LlmChatUseCase(_gateway, _llm, _sanitizer).execute(
+                prompt,
+                system_prompt=system_prompt,
+                context=context,
+                max_tokens=max_tokens,
+                history=history,
+            )
+        metrics.llm_result(_llm_model(), "success")
+        return {"reply": result["reply"], "model": _llm_model(),
+                "context_length": result["context_length"]}
+
+    return await _guarded("llm_chat", "superviseur", token, work, ctx=ctx,
+                          params={"prompt": prompt, "context": context,
+                                  "max_tokens": max_tokens})
 
 
 # ─────────────────────────  pilotage (Admin) — HITL  ─────────────────────

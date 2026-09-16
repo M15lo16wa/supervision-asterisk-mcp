@@ -16,7 +16,7 @@ from src.domain.entities import (
     SpyResult,
     TransferResult,
 )
-from src.domain.exceptions import ChannelNotFound, HitlConfirmationDenied, UnauthorizedAction
+from src.domain.exceptions import ChannelNotFound, HitlConfirmationDenied, LlmUnavailableError, UnauthorizedAction
 from src.domain.ports import (
     AsteriskGateway,
     DataSanitizer,
@@ -143,3 +143,31 @@ class FakeElicitContext:
 
     async def elicit(self, message, response_type):
         return self._result
+
+
+class RecordingLLM(LanguageModel):
+    """Test double: enregistre les appels et renvoie une réponse fixe."""
+
+    def __init__(self, reply_text="Réponse du LLM"):
+        self.reply_text = reply_text
+        self.model = "fake-model"
+        self.calls: list[dict] = []
+
+    async def reply(self, prompt, history=None, *, system_prompt=None, temperature=None, max_tokens=None) -> str:
+        self.calls.append({
+            "prompt": prompt,
+            "history": history,
+            "system_prompt": system_prompt,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        })
+        return self.reply_text
+
+
+class FailingLLM(LanguageModel):
+    """Test double: le LLM local est injoignable."""
+
+    model = "fake-model"
+
+    async def reply(self, prompt, history=None, *, system_prompt=None, temperature=None, max_tokens=None) -> str:
+        raise LlmUnavailableError("ollama injoignable (faux)")

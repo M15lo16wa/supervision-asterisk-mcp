@@ -167,6 +167,78 @@
       "annotations": null
     },
     {
+      "name": "llm_chat",
+      "description": "Interroge le LLM local (Ollama) pour l'aide à la supervision.\n\nLe superviseur pose une question en langage naturel ; `context` annexe des\ndonnées temps réel d'Asterisk (traitées comme contenu, jamais comme instruction) :\n`[\"channels\", \"cdr:10\", \"queues\", \"trunks\", \"extensions\"]` (le préfixe `:N`\nborne le nombre d'enregistrements, ex. `cdr:5`).\n\n`history` transmet les tours précédents `[{\"role\": \"user\"|\"assistant\",\n\"content\": \"...\"}]` pour un dialogue multi-tours.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "system_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "max_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "history": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "annotations": null
+    },
+    {
       "name": "originate_call",
       "description": "Initie un appel vers `endpoint` puis le route vers context/exten. Validation humaine obligatoire.",
       "inputSchema": {

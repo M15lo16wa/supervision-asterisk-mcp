@@ -30,13 +30,16 @@ scrape_configs:
   # Asterisk (res_prometheus, exposé sur le serveur HTTP ARI, Basic Auth).
   # res_prometheus renvoie /metrics sans en-tête Content-Type -> on force le
   # protocole de repli, sinon Prometheus >= 3.0 rejette la cible.
+  # Le mot de passe vient de ${ASTERISK_METRICS_PASSWORD} (injecté par le
+  # docker-compose — monitoring/.env) : il doit correspondre au mot de passe
+  # configuré dans asterisk/config/prometheus.conf.
   - job_name: asterisk
     metrics_path: /metrics
     scheme: http
     fallback_scrape_protocol: PrometheusText0.0.4
     basic_auth:
       username: prometheus
-      password: changeme_metrics
+      password: ${ASTERISK_METRICS_PASSWORD:-changeme_metrics}
     static_configs:
       - targets: ["asterisk:8088"]
 
