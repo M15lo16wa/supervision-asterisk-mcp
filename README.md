@@ -98,12 +98,16 @@ docker compose ps
 | Serveur MCP | http://localhost:8000/mcp |
 | Métriques | http://localhost:8000/metrics |
 
-### 2. Brancher Asterisk (conteneur externe)
+### 2. Brancher Asterisk
 
-Asterisk tourne dans **son propre conteneur** sur la machine (il n'est pas géré
-par ce `docker-compose`). Le connecter au réseau du socle **avec l'alias
-`asterisk`** (c'est le nom résolu par le serveur MCP et par Prometheus) puis le
-configurer :
+Asterisk peut tourner dans un **conteneur Docker** (option A) ou être installé
+**au niveau système** sur une machine distante (option B, bare metal). Dans les
+deux cas, le serveur MCP se connecte via AMI (port 5038) et ARI (port 8088).
+
+#### Option A — Conteneur Docker (même hôte)
+
+Asterisk tourne dans son propre conteneur sur la même machine. Le connecter au
+réseau du socle **avec l'alias `asterisk`** puis le configurer :
 
 ```bash
 # a) joindre le conteneur Asterisk au réseau du socle, alias `asterisk`
@@ -134,6 +138,142 @@ Les valeurs ci-dessus sont celles déployées par
 `scripts/setup_test_asterisk.sh` et présentes dans
 [`asterisk/config/`](asterisk/config/) — **développement uniquement**, à
 changer en production (voir l'avertissement en fin de document).
+
+#### Option B — Bare metal / système (machine distante)
+
+Asterisk est installé au niveau système sur une machine Ubuntu (ou autre).
+Pas de `docker exec` ni de `docker network connect` — la configuration se fait
+directement sur `/etc/asterisk/` et le serveur MCP rejoint Asterisk par son
+IP.
+
+> **Prérequis réseau** : les ports AMI (5038) et ARI (8088) doivent être
+> accessibles depuis la machine hébergeant le serveur MCP.
+> `sudo ufw allow 5038/tcp && sudo ufw allow 8088/tcp`
+
+**a) AMI (`/etc/asterisk/manager.conf` + `manager.d/`) :**
+
+```bash
+# bindaddr doit être 0.0.0.0 (pas 127.0.0.1)
+sudo sed -i 's/^bindaddr *= *127\.0\.0\.1/bindaddr = 0.0.0.0/' /etc/asterisk/manager.conf
+
+# inclure le dossier manager.d si absent
+grep -q "manager.d" /etc/asterisk/manager.conf || \
+  echo '#include "manager.d/*.conf"' | sudo tee -a /etc/asterisk/manager.conf
+
+# compte AMI
+sudo mkdir -p /etc/asterisk/manager.d
+sudo tee /etc/asterisk/manager.d/mcp.conf <<'EOF'
+[mcp_ami]
+secret = <VOTRE_SECRET_AMI>
+deny = 0.0.0.0/0.0.0.0
+permit = 127.0.0.1/255.255.255.255
+permit = 10.0.0.0/255.0.0.0
+permit = 172.16.0.0/255.240.0.0
+permit = 192.168.0.0/255.255.0.0
+read = system,call,cdr,dialplan,reporting,agent,user
+write = call,reporting,command,originate
+EOF
+```
+
+**b) ARI (`/etc/asterisk/http.conf` + `ari.conf`) :**
+
+```bash
+sudo sed -i 's/^enabled *= *no/enabled = yes/' /etc/asterisk/http.conf
+sudo sed -i 's/^bindaddr *= *127\.0\.0\.1/bindaddr = 0.0.0.0/' /etc/asterisk/http.conf
+
+grep -q "mcp_ari" /etc/asterisk/ari.conf || sudo tee -a /etc/asterisk/ari.conf <<'EOF'
+[mcp_ari]
+type = user
+password = <VOTRE_SECRET_ARI>
+EOF
+```
+
+**c) Dialplan de test (`/etc/asterisk/extensions_mcp.conf`) :**
+
+```bash
+sudo tee /etc/asterisk/extensions_mcp.conf <<'EOF'
+[mcp-internal]
+exten => _10XX,1,NoOp(MCP test call to ${EXTEN})
+ same => n,Dial(PJSIP/${EXTEN},20)
+ same => n,Hangup()
+exten => 1001,hint,PJSIP/1001
+exten => 1002,hint,PJSIP/1002
+exten => 700,1,Answer()
+ same => n,Stasis(mcp-voice)
+ same => n,Hangup()
+exten => 701,1,Answer()
+ same => n,Echo()
+ same => n,Hangup()
+exten => 800,1,Answer()
+ same => n,Queue(support,t,,,60)
+ same => n,Hangup()
+EOF
+
+grep -q "extensions_mcp.conf" /etc/asterisk/extensions.conf || \
+  echo '#include "extensions_mcp.conf"' | sudo tee -a /etc/asterisk/extensions.conf
+```
+
+**d) CDR temps réel :**
+
+```bash
+sudo tee /etc/asterisk/cdr_manager.conf <<'EOF'
+[general]
+enabled = yes
+[mappings]
+EOF
+```
+
+**e) File d'attente `support` :**
+
+```bash
+grep -q "\[support\]" /etc/asterisk/queues.conf || sudo tee -a /etc/asterisk/queues.conf <<'EOF'
+[support]
+music=default
+timeout=15
+EOF
+```
+
+**f) res_prometheus (métriques) :**
+
+```bash
+sudo tee /etc/asterisk/prometheus.conf <<'EOF'
+[general]
+enabled = yes
+username = prometheus
+password = <VOTRE_METRICS_PASSWORD>
+EOF
+```
+
+**g) Recharger et vérifier :**
+
+```bash
+sudo asterisk -rx "module reload manager"
+sudo asterisk -rx "module reload res_prometheus.so" || true
+sudo asterisk -rx "module reload cdr_manager.so" || true
+sudo asterisk -rx "dialplan reload"
+sudo asterisk -rx "core reload"
+
+sudo asterisk -rx "manager show users"
+sudo asterisk -rx "ari show users"
+sudo asterisk -rx "http show status"
+sudo asterisk -rx "pjsip show endpoints"
+```
+
+**h) `.env` sur la machine MCP :**
+
+```dotenv
+ASTERISK_HOST=<IP_UBUNTU>
+ASTERISK_AMI_USER=mcp_ami
+ASTERISK_AMI_SECRET=<identique_au_secret_manager_conf>
+ASTERISK_ARI_BASE_URL=http://<IP_UBUNTU>:8088
+ASTERISK_ARI_USER=mcp_ari
+ASTERISK_ARI_PASSWORD=<identique_au_secret_ari_conf>
+ASTERISK_DEFAULT_CONTEXT=mcp-internal
+```
+
+> **Règle d'or** : les secrets dans `.env` doivent être **identiques** à ceux
+> écrits dans `manager.conf`, `ari.conf` et `prometheus.conf` sur Ubuntu.
+> C'est la cause n°1 de blocage.
 
 ```bash
 docker compose up -d mcp-server            # recharger avec les nouvelles variables
@@ -309,15 +449,22 @@ personnalisables via `MCP_STATIC_TOKENS`).
 Le socle (`docker-compose.yml` racine) n'orchestre que **PostgreSQL +
 Keycloak + serveur MCP**. Deux catégories de briques complètent le système :
 
-### Reste externe (conteneur déjà présent sur la machine, à connecter manuellement)
+### Reste externe (à connecter manuellement)
 
 | Brique | Rôle | Config fournie ici |
 |---|---|---|
-| **Asterisk 20/22** | PBX (AMI/ARI/Stasis) | `asterisk/config/` + `scripts/setup_test_asterisk.sh` |
+| **Asterisk 20/22** | PBX (AMI/ARI/Stasis) — conteneur Docker **ou** bare metal | `asterisk/config/` (modèles) + `scripts/setup_test_asterisk.sh` (Docker) |
+
+**Conteneur Docker** (même hôte) :
 
 ```bash
 docker network connect --alias asterisk supervision-net <nom_conteneur_asterisk>
+./scripts/setup_test_asterisk.sh <nom_conteneur_asterisk>
 ```
+
+**Bare metal / système** (machine distante) : configurer manuellement
+`/etc/asterisk/` sur Ubuntu — voir « Option B » dans la section 2 du guide
+d'utilisation.
 
 ### Gérées par une stack dédiée (`monitoring/docker-compose.yml`)
 
@@ -384,8 +531,10 @@ docs/               tool-schemas.json, mcp-inspector.md
 
 ## Module 2 — Configuration Asterisk
 
-`asterisk/config/` (appliqué par `scripts/setup_test_asterisk.sh` ou monté en
-`/etc/asterisk`) :
+`asterisk/config/` — fichiers **modèles** à appliquer (via
+`scripts/setup_test_asterisk.sh` pour les conteneurs Docker, ou copiés/adaptés
+dans `/etc/asterisk/` pour un Asterisk bare metal — voir « Option B » au
+guide d'utilisation) :
 
 | Fichier | Contenu |
 |---|---|
