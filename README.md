@@ -127,10 +127,10 @@ Reporter ces valeurs dans `.env` (si le hostname ou les secrets diffèrent) :
 ```dotenv
 ASTERISK_HOST=asterisk
 ASTERISK_AMI_USER=mcp_ami
-ASTERISK_AMI_SECRET=msS0swB2PjjVtfJkEFJLpMYxp1VngJnXvkSOhRVB290
+ASTERISK_AMI_SECRET= password_secret
 ASTERISK_ARI_BASE_URL=http://asterisk:8088
 ASTERISK_ARI_USER=mcp_ari
-ASTERISK_ARI_PASSWORD=780HNl27IF2gKx2aBy3B7CeKbqXHLyVg8sAUS9x8Qqw
+ASTERISK_ARI_PASSWORD= password_secret
 ASTERISK_DEFAULT_CONTEXT=mcp-internal    # contexte du dialplan de test
 ```
 
