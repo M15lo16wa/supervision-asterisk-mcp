@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 
 from fastmcp import Client
@@ -37,13 +38,34 @@ async def main() -> int:
     parser.add_argument("--confirm", choices=["oui", "non"], default="non")
     parser.add_argument("--endpoint", default="PJSIP/1001")
     parser.add_argument("--exten", default="1002")
+    parser.add_argument(
+        "--context",
+        default=os.getenv("ASTERISK_DEFAULT_CONTEXT", "mcp-internal"),
+    )
     args = parser.parse_args()
 
     global CONFIRM
     CONFIRM = args.confirm == "oui"
 
-    with open(args.token_file, encoding="utf-8") as fh:
-        token = json.load(fh)["access_token"]
+    try:
+        with open(args.token_file, encoding="utf-8") as fh:
+            raw = fh.read()
+    except OSError as e:
+        parser.error(f"--token-file illisible ({args.token_file}) : {e}")
+    if not raw.strip():
+        parser.error(
+            f"--token-file vide ({args.token_file}) : "
+            "le jeton n'a pas été obtenu. Relancez "
+            "'./scripts/get_token.sh admin_demo > /tmp/tok.json' et vérifiez "
+            "qu'il affiche du JSON (realm 'asterisk' importé, Keycloak UP)."
+        )
+    try:
+        token = json.loads(raw)["access_token"]
+    except (json.JSONDecodeError, KeyError) as e:
+        parser.error(
+            f"--token-file invalide ({args.token_file}) : {e}. "
+            "Contenu attendu : JSON Keycloak avec clé 'access_token'."
+        )
 
     client = Client(args.url, auth=BearerAuth(token), elicitation_handler=elicitation_handler)
     async with client:
@@ -57,7 +79,7 @@ async def main() -> int:
         try:
             res = await client.call_tool(
                 "originate_call",
-                {"endpoint": args.endpoint, "exten": args.exten, "context": "internal"},
+                {"endpoint": args.endpoint, "exten": args.exten, "context": args.context},
             )
             print(json.dumps(res.data, indent=2, ensure_ascii=False))
         except Exception as e:  # noqa: BLE001

@@ -88,7 +88,7 @@ Schémas JSON des outils : [`docs/tool-schemas.json`](docs/tool-schemas.json)
 git clone https://github.com/M15lo16wa/supervision-asterisk-mcp.git
 cd supervision-asterisk-mcp
 cp .env.example .env                       # ⚠️ changer tous les mots de passe
-docker compose up -d                       # PostgreSQL + Keycloak (realm importé) + serveur MCP
+docker compose up -d                       # PostgreSQL + Keycloak (realm `asterisk` importé via --import-realm) + serveur MCP
 docker compose ps
 ```
 
@@ -341,23 +341,21 @@ sous le nom `ollama` sur `supervision-net`.
 ```bash
 # a) Ollama de la stack monitoring -> déjà sur supervision-net avec l'alias `ollama`
 #    (Ollama externe -> docker network connect --alias ollama supervision-net <conteneur_ollama>)
+#    Stack monitoring : cd monitoring && cp .env.example .env && docker compose up -d ollama
 
 # b) télécharger le modèle utilisé par la voix (qwen2.5:3b-instruct)
-./scripts/ollama_pull.sh
+./scripts/ollama_pull.sh supervision-ollama
 
-# c) installer les extras lourds (faster-whisper, piper) sur l'hôte du pipeline
-cd mcp-server
-pip install -e ".[voice]"
-
-# d) variables d'accès (valeurs du .env racine / de la config Asterisk déployée)
-export OLLAMA_BASE_URL=http://ollama:11434
-export ASTERISK_ARI_BASE_URL=http://asterisk:8088
-export ASTERISK_ARI_USER=mcp_ari
-export ASTERISK_ARI_PASSWORD=780HNl27IF2gKx2aBy3B7CeKbqXHLyVg8sAUS9x8Qqw
-
-# e) lancer le pipeline (métriques sur :9092/metrics)
-python -m src.voice.runner
+# c) lancer le pipeline via le profil `voice` du compose racine
+#    (build Dockerfile.voice : faster-whisper + Piper + voix française)
+docker compose --profile voice up -d --build voice-pipeline
+docker compose logs -f voice-pipeline
 ```
+
+Le runner lit les variables du `.env` racine (`ASTERISK_ARI_*`,
+`OLLAMA_*`, `STT_*`, `TTS_VOICE`, `VOICE_*`, `LATENCY_BUDGET_MS`) et expose
+ses métriques sur `:${VOICE_METRICS_PORT:-9092}/metrics`. Sans le profil
+`voice`, `docker compose up -d` ne le démarre pas (image lourde, opt-in).
 
 Côté Asterisk, le dialplan `700 => Stasis(mcp-voice)` route l'appel vers le
 pipeline. Le runner doit être **résolvable sous le nom `voice-pipeline`** sur
@@ -398,6 +396,18 @@ Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
 > Docker sur `supervision-net`. L'alias `ollama` est déclaré dans le compose de
 > la stack ; l'alias `asterisk` s'ajoute à la connexion du conteneur Asterisk
 > (`docker network connect --alias asterisk supervision-net <nom_conteneur>`).
+> **Asterisk bare-metal (même hôte)** : aucun alias possible — le job `asterisk`
+> reste « down » tant que la cible `asterisk:8088` ne résout pas. Option :
+> ajouter `extra_hosts: ["asterisk:HOST_IP"]` au service `prometheus` du
+> compose monitoring (avec `HOST_IP` = IP LAN de l'hôte, ex. `192.168.1.9`),
+> puis `docker compose up -d prometheus`. Sans cela, seul ce job est « down »,
+> sans impact sur les autres.
+> **Authentification JWT** : le serveur MCP accepte les jetons émis via
+> l'URL publique **et** interne de Keycloak (`KEYCLOAK_PUBLIC_URL` et
+> `KEYCLOAK_BASE_URL`) — indispensable quand le jeton est obtenu depuis
+> l'hôte (`localhost`) alors que le serveur résout Keycloak en interne
+> (`http://keycloak:8080`). Les deux variables doivent rester renseignées
+> (défauts dans `.env.example`).
 
 Grafana charge automatiquement la datasource Prometheus et les dashboards du
 dossier `monitoring/grafana/dashboards/` via provisioning.

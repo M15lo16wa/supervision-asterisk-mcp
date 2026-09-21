@@ -10,6 +10,7 @@
 
 x-common-env: &keycloak-realm
   KEYCLOAK_BASE_URL: http://keycloak:8080
+  KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
   KEYCLOAK_REALM: ${KEYCLOAK_REALM:-asterisk}
   KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-mcp-server}
 
@@ -34,7 +35,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     container_name: supervision-keycloak
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${POSTGRES_DB:-keycloak}
@@ -98,7 +99,44 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+    # Résolution du host depuis le conteneur (Asterisk bare-metal sur l'hôte).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks: [supervision-net]
+
+  voice-pipeline:
+    # Module 3 — pipeline vocal S2S (profil `voice` : non démarré par `up -d`
+    # par défaut car l'image embarque faster-whisper + Piper, lourds).
+    #   docker compose --profile voice up -d --build voice-pipeline
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile.voice
+    image: supervision-asterisk-mcp-voice-pipeline
+    container_name: supervision-voice-pipeline
+    profiles: ["voice"]
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
+      ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
+      ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
+      ASTERISK_ARI_APP: ${ASTERISK_ARI_APP:-mcp-voice}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      STT_MODEL: ${STT_MODEL:-small}
+      STT_DEVICE: ${STT_DEVICE:-cpu}
+      TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
+      VOICE_RTP_PORT: ${VOICE_RTP_PORT:-40000}
+      VOICE_METRICS_PORT: ${VOICE_METRICS_PORT:-9092}
+      LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-1500}
+    command: ["python", "-m", "src.voice.runner"]
+    ports:
+      - "${VOICE_METRICS_PORT:-9092}:9092"
+      - "${VOICE_RTP_PORT:-40000}:40000/udp"
+    restart: unless-stopped
+    networks:
+      supervision-net:
+        aliases:
+          - voice-pipeline
 
 networks:
   supervision-net:

@@ -76,6 +76,15 @@ class Settings:
 
     # Keycloak
     keycloak_base_url: str = field(default_factory=lambda: _env("KEYCLOAK_BASE_URL", "http://localhost:8080"))
+    # URL publique de Keycloak vue par les clients (hors Docker) : c'est elle
+    # qui figure dans le claim `iss` des jetons obtenus via le navigateur /
+    # get_token.sh. Peut différer de keycloak_base_url (nom interne Docker).
+    keycloak_public_url: str = field(
+        default_factory=lambda: _env(
+            "KEYCLOAK_PUBLIC_URL",
+            _env("KEYCLOAK_BASE_URL", "http://localhost:8080"),
+        )
+    )
     keycloak_realm: str = field(default_factory=lambda: _env("KEYCLOAK_REALM", "asterisk"))
     keycloak_client_id: str = field(default_factory=lambda: _env("KEYCLOAK_CLIENT_ID", "mcp-server"))
 
@@ -114,6 +123,14 @@ class Settings:
     @property
     def keycloak_issuer(self) -> str:
         return f"{self.keycloak_base_url}/realms/{self.keycloak_realm}"
+
+    @property
+    def keycloak_issuers(self) -> list[str]:
+        """Issuers acceptés (interne Docker + public) — le `iss` du JWT dépend
+        de l'URL par laquelle le client a joint Keycloak."""
+        internal = self.keycloak_issuer
+        public = f"{self.keycloak_public_url.rstrip('/')}/realms/{self.keycloak_realm}"
+        return [public, internal] if public != internal else [internal]
 
     @property
     def keycloak_jwks_url(self) -> str:

@@ -18,6 +18,26 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mcp-server"))
 
+
+def _load_dotenv() -> None:
+    """Charge le .env racine (stdlib uniquement) sans écraser l'environnement."""
+    root = os.path.join(os.path.dirname(__file__), "..", ".env")
+    try:
+        with open(root, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key, value = key.strip(), value.strip().strip("\"'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except OSError:
+        pass
+
+
+_load_dotenv()
+
 from src.adapters.asterisk_gateway import PanoramiskGateway  # noqa: E402
 from src.domain.entities import SpyMode  # noqa: E402
 

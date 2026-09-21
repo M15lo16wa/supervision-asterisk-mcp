@@ -71,7 +71,10 @@ def build_auth_provider():
 
     kwargs: dict = {
         "jwks_uri": settings.keycloak_jwks_url,
-        "issuer": settings.keycloak_issuer,
+        # Liste [public, interne] : le claim `iss` dépend de l'URL par laquelle
+        # le client a obtenu le jeton (localhost hors Docker vs `keycloak`
+        # dans le réseau Docker). Le JWKS reste récupéré sur l'URL interne.
+        "issuer": settings.keycloak_issuers,
         "algorithm": "RS256",
     }
     # base_url -> FastMCP publie la métadonnée OAuth de ressource protégée

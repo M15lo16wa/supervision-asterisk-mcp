@@ -502,7 +502,6 @@
   "webAuthnPolicyAttestationConveyancePreference": "not specified",
   "webAuthnPolicyAuthenticatorAttachment": "not specified",
   "webAuthnPolicyRequireResidentKey": "not specified",
-  "webAuthnPolicyResidentKey": "not specified",
   "webAuthnPolicyUserVerificationRequirement": "not specified",
   "webAuthnPolicyCreateTimeout": 0,
   "webAuthnPolicyAvoidSameAuthenticatorRegister": false,
@@ -517,7 +516,6 @@
   "webAuthnPolicyPasswordlessAttestationConveyancePreference": "not specified",
   "webAuthnPolicyPasswordlessAuthenticatorAttachment": "not specified",
   "webAuthnPolicyPasswordlessRequireResidentKey": "not specified",
-  "webAuthnPolicyPasswordlessResidentKey": "required",
   "webAuthnPolicyPasswordlessUserVerificationRequirement": "required",
   "webAuthnPolicyPasswordlessCreateTimeout": 0,
   "webAuthnPolicyPasswordlessAvoidSameAuthenticatorRegister": false,
@@ -845,7 +843,7 @@
       ]
     },
     {
-      "id": "mcp-server-client-0000-0000-000000000001",
+      "id": "mcp-server-client-000000000001",
       "clientId": "mcp-server",
       "name": "Serveur MCP de supervision Asterisk",
       "description": "Client confidentiel utilisé par le serveur MCP et par les clients de test pour obtenir un JWT (password grant).",
@@ -1654,14 +1652,6 @@
         }
       },
       {
-        "id": "80dbb920-a032-42d4-99e1-523d56af86d3",
-        "name": "Allowed Registration Web Origins",
-        "providerId": "registration-web-origins",
-        "subType": "anonymous",
-        "subComponents": {},
-        "config": {}
-      },
-      {
         "id": "b37b22f3-0687-4a3b-8cdc-486f714821c5",
         "name": "Allowed Client Scopes",
         "providerId": "allowed-client-templates",
@@ -1704,14 +1694,6 @@
             "200"
           ]
         }
-      },
-      {
-        "id": "d160f89a-8f01-49e2-8d06-6096b47c9070",
-        "name": "Allowed Registration Web Origins",
-        "providerId": "registration-web-origins",
-        "subType": "authenticated",
-        "subComponents": {},
-        "config": {}
       },
       {
         "id": "4e1e126f-0037-4862-abb0-2dfb1372068c",
@@ -2686,9 +2668,6 @@
   "keycloakVersion": "26.7.0",
   "userManagedAccessAllowed": false,
   "organizationsEnabled": false,
-  "verifiableCredentialsEnabled": false,
-  "adminPermissionsEnabled": false,
-  "scimApiEnabled": false,
   "clientProfiles": {
     "profiles": []
   },
