@@ -35,4 +35,4 @@ class TransferCallUseCase:
             },
         )
         result = await self._gateway.transfer(channel_id, destination, context, attended=attended)
-        return self._sanitizer.sanitize(result.to_dict())
+        return self._sanitizer.neutralize(result.to_dict())

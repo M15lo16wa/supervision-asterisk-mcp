@@ -48,6 +48,13 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "oui")
+
+
 @dataclass(frozen=True)
 class LlmSettings:
     """Configuration de l'outil superviseur `llm_chat` (Module 2).

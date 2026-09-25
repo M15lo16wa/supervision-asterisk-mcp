@@ -12,4 +12,4 @@ class GetChannelInfoUseCase:
 
     async def execute(self, channel_id: str) -> dict:
         channel = await self._gateway.get_channel(channel_id)
-        return self._sanitizer.sanitize(channel.to_dict())
+        return self._sanitizer.neutralize(channel.to_dict())

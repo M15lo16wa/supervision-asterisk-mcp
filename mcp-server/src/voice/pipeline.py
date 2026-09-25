@@ -3,14 +3,16 @@
 
 Per turn:  slin16 utterance ─▶ STT ─▶ LLM (streamed) ─▶ TTS (per sentence) ─▶ slin16
 
-Latency strategy to stay under ``latency_budget_ms`` (default 1500 ms):
+Latency strategy to stay within ``latency_budget_ms``:
   * endpointing emits the utterance as soon as speech stops (audio.UtteranceDetector);
   * the LLM is streamed and TTS starts on the first complete sentence, so audio
     playback begins well before the full reply is generated;
-  * STT uses beam_size=1 and a small model by default;
+  * STT uses beam_size=1 and a small model by default (``base``: ~2.3 s of CPU
+    for 5 s of audio; ``small`` reaches RTF 2.6 and is only usable on a GPU);
   * ``num_predict`` caps the reply length.
 Each stage is timed; ``VoiceTurn.within_budget`` reports whether STT+LLM+TTS of
-the *first* audible sentence fit the budget.
+the *first* audible sentence fit the budget. The default budget (20 s) reflects a
+CPU-only host; a GPU deployment should lower it to ~1500 ms.
 """
 from __future__ import annotations
 

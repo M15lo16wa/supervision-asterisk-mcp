@@ -12,4 +12,4 @@ class ListActiveChannelsUseCase:
 
     async def execute(self) -> list:
         channels = await self._gateway.list_channels()
-        return self._sanitizer.sanitize([c.to_dict() for c in channels])
+        return self._sanitizer.neutralize([c.to_dict() for c in channels])

@@ -12,4 +12,4 @@ class AnalyzeCallQualityUseCase:
 
     async def execute(self, channel_id: str) -> dict:
         quality = await self._gateway.get_channel_quality(channel_id)
-        return self._sanitizer.sanitize(quality.to_dict())
+        return self._sanitizer.neutralize(quality.to_dict())

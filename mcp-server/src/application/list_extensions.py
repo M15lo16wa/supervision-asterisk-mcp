@@ -12,4 +12,4 @@ class ListExtensionsUseCase:
 
     async def execute(self, context: str | None = None) -> list:
         extensions = await self._gateway.list_extensions(context=context)
-        return self._sanitizer.sanitize([e.to_dict() for e in extensions])
+        return self._sanitizer.neutralize([e.to_dict() for e in extensions])

@@ -11,6 +11,12 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: supervision-ollama
+    environment:
+      # Recharger le modèle (2,2 Go) depuis le disque prend ~210 s sous Docker
+      # Desktop, alors que le timeout LLM du serveur MCP est de 180 s : sans
+      # keep-alive, le PREMIER llm_chat après 5 min d'inactivité échoue
+      # toujours en `llm_unavailable`. `-1` = garde le modèle en RAM.
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1}
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -32,9 +38,11 @@ services:
   prometheus:
     image: prom/prometheus:latest
     container_name: supervision-prometheus
-    environment:
-      # injecté dans prometheus.yml via ${ASTERISK_METRICS_PASSWORD}
-      - ASTERISK_METRICS_PASSWORD=${ASTERISK_METRICS_PASSWORD:-changeme_metrics}
+    secrets:
+      # Prometheus n'expanse pas ${VAR} dans basic_auth.password : le mot de
+      # passe est donc monté en fichier, lu via `password_file` dans
+      # prometheus.yml. La valeur vient de monitoring/.env.
+      - asterisk_metrics_password
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -92,3 +100,9 @@ volumes:
   ollama_data:
   prometheus_data:
   grafana_data:
+
+secrets:
+  # Secret dérivé de la variable d'environnement du même nom (monitoring/.env,
+  # ou l'environnement du shell). Aucun secret n'est écrit dans le dépôt.
+  asterisk_metrics_password:
+    environment: ASTERISK_METRICS_PASSWORD

@@ -5,9 +5,10 @@
              ├─ mixing bridge ──┬─ External Media channel ── RTP/UDP ──▶ this process
    (Stasis) ─┘                  └─ (TTS audio sent back on the same RTP flow)
 
-The RTP payload for slin16 is raw PCM16 big-endian at 16 kHz; frames are 20 ms
-(320 samples / 640 bytes). We learn Asterisk's source port from the first
-inbound packet and send synthesised audio back to it.
+The RTP payload for slin16 is raw PCM16 **big-endian** at 16 kHz; frames are
+20 ms (320 samples / 640 bytes). We learn Asterisk's source port from the first
+inbound packet and send synthesised audio back to it. The byte swap between the
+wire format (big-endian) and the native samples used by STT/TTS happens here.
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ from collections.abc import AsyncIterator
 
 import aiohttp
 
+from src.observability import metrics
+from src.voice.audio import to_big_endian, to_little_endian
 from src.voice.config import VoiceSettings
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,7 @@ class RtpEndpoint(asyncio.DatagramProtocol):
         self._ts = random.randint(0, 0xFFFFFFFF)
         self._ssrc = random.randint(0, 0xFFFFFFFF)
         self._closed = asyncio.Event()
+        self._bound_port: int | None = None
 
     # asyncio protocol ----------------------------------------------------------
     def connection_made(self, transport):
@@ -53,10 +57,13 @@ class RtpEndpoint(asyncio.DatagramProtocol):
             logger.info("RTP peer learned: %s", addr)
         if len(data) <= 12:
             return
-        payload = data[12:]  # skip fixed RTP header (no CSRC/extension expected)
+        # slin16 arrive en big-endian sur le réseau -> natif pour la suite.
+        payload = to_little_endian(data[12:])  # en-tête RTP fixe (pas de CSRC)
         try:
             self._queue.put_nowait(payload)
+            metrics.VOICE_RTP_FRAMES.inc()
         except asyncio.QueueFull:
+            metrics.VOICE_RTP_DROPPED.inc()
             logger.debug("inbound RTP queue full, dropping frame")
 
     def error_received(self, exc):  # pragma: no cover
@@ -81,11 +88,12 @@ class RtpEndpoint(asyncio.DatagramProtocol):
             frame = pcm16[i : i + self.frame_bytes]
             if len(frame) < self.frame_bytes:
                 frame = frame + b"\x00" * (self.frame_bytes - len(frame))
+            payload = to_big_endian(frame)  # natif -> big-endian pour Asterisk
             header = struct.pack(
                 "!BBHII", _RTP_VERSION, _PT_SLIN16, self._seq & 0xFFFF,
                 self._ts & 0xFFFFFFFF, self._ssrc,
             )
-            self._transport.sendto(header + frame, self._peer)
+            self._transport.sendto(header + payload, self._peer)
             self._seq += 1
             self._ts += self.frame_samples
             await asyncio.sleep(self.frame_ms / 1000)
@@ -94,6 +102,8 @@ class RtpEndpoint(asyncio.DatagramProtocol):
         self._closed.set()
         if self._transport is not None:
             self._transport.close()
+            if self._bound_port:
+                _ports_in_use.discard(self._bound_port)
 
 
 class AriClient:
@@ -142,11 +152,28 @@ class AriClient:
             },
         )
         channel_id = data["id"]
-        await self._post(f"/bridges/{bridge_id}/addChannel", {"channel": channel_id})
+        await self.add_channel(bridge_id, channel_id)
         return channel_id
 
-    async def add_channel(self, bridge_id: str, channel_id: str) -> None:
-        await self._post(f"/bridges/{bridge_id}/addChannel", {"channel": channel_id})
+    async def add_channel(self, bridge_id: str, channel_id: str, attempts: int = 6) -> None:
+        """Add a channel to a bridge, retrying the transient ARI races.
+
+        Asterisk answers 422 "Channel not in Stasis application" when the
+        channel is still being registered in the app (right after StasisStart),
+        and 422 when the channel is momentarily busy moving bridges. Both clear
+        within a few hundred milliseconds.
+        """
+        last: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                await self._post(f"/bridges/{bridge_id}/addChannel", {"channel": channel_id})
+                return
+            except Exception as exc:  # on retentera jusqu'au bout
+                last = exc
+                if attempt == 0:
+                    logger.info("addChannel %s refusé, nouvelle tentative", channel_id)
+                await asyncio.sleep(0.4 * (attempt + 1))
+        raise RuntimeError(f"impossible d'ajouter {channel_id} au pont {bridge_id}: {last}")
 
     async def answer(self, channel_id: str) -> None:
         await self._post(f"/channels/{channel_id}/answer", {})
@@ -171,12 +198,44 @@ class AriClient:
                     break
 
 
+_PORT_LOCK = asyncio.Lock()
+_ports_in_use: set[int] = set()
+_PORT_SCAN = 64  # ports essayés au-delà du port de base avant de choisir un port libre
+
+
+async def _bind_rtp(settings: VoiceSettings) -> tuple[RtpEndpoint, int]:
+    """Bind one RTP socket for a call, avoiding the ports already taken.
+
+    ``VOICE_RTP_PORT`` is a *base* port: concurrent calls each get their own
+    socket (base, base+1, …) so two simultaneous conversations do not collide
+    with ``address already in use``.
+    """
+    loop = asyncio.get_running_loop()
+    base = settings.rtp_port
+    candidates = [base + i for i in range(_PORT_SCAN)] + [0]  # 0 = éphémère
+    async with _PORT_LOCK:
+        for port in candidates:
+            if port and port in _ports_in_use:
+                continue
+            endpoint = RtpEndpoint(settings.sample_rate, settings.frame_ms)
+            try:
+                transport, _ = await loop.create_datagram_endpoint(
+                    lambda ep=endpoint: ep, local_addr=(settings.rtp_host, port)
+                )
+            except OSError as exc:
+                logger.warning("RTP port %s indisponible (%s)", port, exc)
+                continue
+            bound = transport.get_extra_info("sockname")[1]
+            endpoint._bound_port = bound
+            _ports_in_use.add(bound)
+            if bound != base:
+                logger.info("RTP: base %s occupée, canal sur le port %s", base, bound)
+            return endpoint, bound
+    raise RuntimeError("aucun port RTP disponible pour un nouveau canal")
+
+
 async def open_rtp_endpoint(settings: VoiceSettings) -> tuple[RtpEndpoint, int]:
     """Bind the local RTP socket; returns (endpoint, bound_port)."""
-    loop = asyncio.get_running_loop()
-    endpoint = RtpEndpoint(settings.sample_rate, settings.frame_ms)
-    transport, _ = await loop.create_datagram_endpoint(
-        lambda: endpoint, local_addr=(settings.rtp_host, settings.rtp_port)
-    )
-    port = transport.get_extra_info("sockname")[1]
+    endpoint, port = await _bind_rtp(settings)
+    logger.info("RTP bound on %s:%d", settings.rtp_host, port)
     return endpoint, port

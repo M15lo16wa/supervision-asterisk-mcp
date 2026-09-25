@@ -32,6 +32,11 @@ class StartChannelSpyUseCase:
         mode: SpyMode,
         user: str,
     ) -> dict:
+        # La cible doit exister : l'Originate du poste superviseur est asynchrone
+        # et répond "Success" même si le ChanSpy ne démarrera jamais (poste non
+        # enregistré, canal disparu entre-temps). Sans cette vérification,
+        # l'outil annonçait un succès sur un canal inexistant.
+        await self._gateway.get_channel(target_channel)
         if mode in _INTRUSIVE:
             await self._hitl.confirm(
                 action=f"channel_spy:{mode.value}",
@@ -39,4 +44,4 @@ class StartChannelSpyUseCase:
                 details={"target_channel": target_channel, "supervisor": supervisor_endpoint},
             )
         result = await self._gateway.start_spy(target_channel, supervisor_endpoint, mode)
-        return self._sanitizer.sanitize(result.to_dict())
+        return self._sanitizer.neutralize(result.to_dict())

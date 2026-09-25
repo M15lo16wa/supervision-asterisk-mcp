@@ -86,6 +86,14 @@ VOICE_BUDGET_EXCEEDED = Counter(
 VOICE_ACTIVE_CALLS = Gauge(
     "voice_active_calls", "Appels en cours dans le pipeline vocal"
 )
+# Diagnostic d'un appel muet : distingue « aucun RTP reçu » (routage/annonce
+# cassés) de « RTP reçu mais VAD muet » (micro/silence).
+VOICE_RTP_FRAMES = Counter(
+    "voice_rtp_frames_in_total", "Trames RTP slin16 reçues par le pipeline vocal"
+)
+VOICE_RTP_DROPPED = Counter(
+    "voice_rtp_frames_dropped_total", "Trames RTP perdues (file d'attente saturée)"
+)
 
 
 def enabled() -> bool:

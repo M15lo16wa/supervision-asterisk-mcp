@@ -14,4 +14,4 @@ class GetQueueStatsUseCase:
         queues = await self._gateway.get_queues()
         if queue:
             queues = [q for q in queues if q.name == queue]
-        return self._sanitizer.sanitize([q.to_dict() for q in queues])
+        return self._sanitizer.neutralize([q.to_dict() for q in queues])

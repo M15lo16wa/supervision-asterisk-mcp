@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from src.config import _env_bool
 from src.domain.ports import SpeechToText
 from src.voice.config import VoiceSettings
 
@@ -49,7 +50,10 @@ class FasterWhisperSTT(SpeechToText):
 
 
 class EchoSTT(SpeechToText):
-    """Test double: returns a fixed transcript, no model required."""
+    """Test double: returns a fixed transcript, no model required.
+
+    Uniquement sur banc de test : ``VOICE_ALLOW_STUB=1``.
+    """
 
     def __init__(self, transcript: str = "bonjour"):
         self.transcript = transcript
@@ -59,9 +63,14 @@ class EchoSTT(SpeechToText):
 
 
 def build_stt(settings: VoiceSettings) -> SpeechToText:
+    if _env_bool("VOICE_ALLOW_STUB", False):
+        logger.warning("VOICE_ALLOW_STUB=1 — STT factice (transcription constante)")
+        return EchoSTT()
     try:
         import faster_whisper  # noqa: F401
-    except ModuleNotFoundError:
-        logger.warning("faster-whisper not installed — using EchoSTT (install extra 'voice')")
-        return EchoSTT()
+    except ModuleNotFoundError as e:
+        raise RuntimeError(
+            "faster-whisper absent : installez l'extra 'voice' dans l'image vocale "
+            "(ou VOICE_ALLOW_STUB=1 pour un banc de test)"
+        ) from e
     return FasterWhisperSTT(settings)

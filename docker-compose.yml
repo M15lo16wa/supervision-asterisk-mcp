@@ -83,8 +83,22 @@ services:
       ASTERISK_ARI_BASE_URL: ${ASTERISK_ARI_BASE_URL:-http://asterisk:8088}
       ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
       ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
-      ASTERISK_DEFAULT_CONTEXT: ${ASTERISK_DEFAULT_CONTEXT:-internal}
+      ASTERISK_DEFAULT_CONTEXT: ${ASTERISK_DEFAULT_CONTEXT:-mcp-internal}
       ASTERISK_TRUNKS: ${ASTERISK_TRUNKS:-trunk-out}
+      # Capacité de chaque trunk pour get_trunk_utilization
+      # (ASTERISK_TRUNK_MAX_TRUNK_OUT=10 -> sans cette variable, 0%).
+      ASTERISK_TRUNK_MAX_TRUNK_OUT: ${ASTERISK_TRUNK_MAX_TRUNK_OUT:-10}
+      # LLM superviseur (llm_chat) : sans ces variables, l'adaptateur vise
+      # http://localhost:11434 *dans* le conteneur -> outil toujours mort.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      # CPU : le 1er appel peut inclure le chargement du modèle en RAM. Mesuré à
+      # ~210 s sous Docker Desktop (2,2 Go lus via la couche de fichiers) contre
+      # ~8 s à chaud. D'où 300 s de timeout, pour rester correct même si
+      # OLLAMA_KEEP_ALIVE est désactivé. La generation reste bornée.
+      LLM_MAX_HISTORY: ${LLM_MAX_HISTORY:-8}
+      LLM_NUM_PRED: ${LLM_NUM_PRED:-256}
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
     volumes:
       - mcp_audit:/app/logs
     ports:
@@ -122,16 +136,39 @@ services:
       ASTERISK_ARI_APP: ${ASTERISK_ARI_APP:-mcp-voice}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
-      STT_MODEL: ${STT_MODEL:-small}
+      # Un modèle LLM à froid met ~200 s à se charger : le timeout doit le couvrir.
+      LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
+      # `small` = ~14 s/tour en CPU (RTF 2.6) : réservé au GPU. `base` = ~2.3 s.
+      STT_MODEL: ${STT_MODEL:-base}
       STT_DEVICE: ${STT_DEVICE:-cpu}
       TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
+      # Adresse RTP annoncée à Asterisk. 0.0.0.0 => IP du conteneur déduite
+      # (_guess_local_ip), correct si Asterisk est sur le même réseau Docker.
+      # Bare-metal : mettre l'IP joignable par l'Asterisk hôte.
+      VOICE_RTP_HOST: ${VOICE_RTP_HOST:-0.0.0.0}
+      # Port de BASE : chaque appel concurrent prend 40001, 40002, …
       VOICE_RTP_PORT: ${VOICE_RTP_PORT:-40000}
       VOICE_METRICS_PORT: ${VOICE_METRICS_PORT:-9092}
-      LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-1500}
+      LATENCY_BUDGET_MS: ${LATENCY_BUDGET_MS:-20000}
+      HF_HOME: /models/hf
+      TTS_MODEL_DIR: /models/piper
+      # Les modèles sont cuits dans l'image (Dockerfile.voice) : aucun volume sur
+      # /models, sinon un volume vide masquerait Piper et Whisper. Un modèle
+      # manquant fait échouer le démarrage au lieu de rendre du silence.
+      VOICE_ALLOW_STUB: ${VOICE_ALLOW_STUB:-false}
     command: ["python", "-m", "src.voice.runner"]
     ports:
-      - "${VOICE_METRICS_PORT:-9092}:9092"
-      - "${VOICE_RTP_PORT:-40000}:40000/udp"
+      - "${VOICE_METRICS_PORT:-9092}:${VOICE_METRICS_PORT:-9092}"
+      # Asterisk étant sur le réseau Docker, il joint le conteneur directement
+      # (IP:port). Cette publication sert au Asterisk hôte et au diagnostic
+      # (injection RTP) : 16 ports, pas 64, pour ne pas réserver le hôte.
+      - "${VOICE_RTP_PORT:-40000}-${VOICE_RTP_PORT_MAX:-40015}:${VOICE_RTP_PORT:-40000}-${VOICE_RTP_PORT_MAX:-40015}/udp"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:${VOICE_METRICS_PORT:-9092}/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
     networks:
       supervision-net:

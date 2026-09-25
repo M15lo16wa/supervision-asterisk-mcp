@@ -23,4 +23,4 @@ class HangupChannelUseCase:
             details={"channel_id": channel_id},
         )
         result = await self._gateway.hangup(channel_id)
-        return self._sanitizer.sanitize(result.to_dict())
+        return self._sanitizer.neutralize(result.to_dict())

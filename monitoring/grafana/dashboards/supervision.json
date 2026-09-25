@@ -195,13 +195,15 @@
     },
     {
       "type": "timeseries",
-      "title": "Ollama — requêtes",
+      "title": "Ollama — appels LLM (par statut)",
       "id": 13,
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 35 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "legendFormat": "requests/s",
-          "expr": "sum(rate(ollama_request_duration_seconds_count[5m]))" }
+        { "refId": "A", "legendFormat": "{{status}}",
+          "expr": "sum by (status) (rate(mcp_llm_calls_total[5m]))" },
+        { "refId": "B", "legendFormat": "{{model}}",
+          "expr": "sum by (model) (rate(mcp_llm_calls_total{status=\"success\"}[5m]))" }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } }, "overrides": [] }
     },

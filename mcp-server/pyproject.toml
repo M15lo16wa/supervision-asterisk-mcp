@@ -21,7 +21,6 @@ voice = [
     "faster-whisper>=1.0",
     "piper-tts>=1.2",
     "numpy>=1.26",
-    "webrtcvad>=2.0.10",
 ]
 dev = [
     "pytest>=8.0",

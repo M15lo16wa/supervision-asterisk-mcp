@@ -43,12 +43,17 @@ class DataSanitizerImpl(DataSanitizer):
     """Concrete implementation of data sanitization."""
 
     def sanitize(self, value: Any) -> Any:
-        """Recursively sanitize untrusted data.
-        
+        """Recursively wrap untrusted data for the LLM prompt.
+
         - Strings: Wrap in envelope + neutralize suspicious patterns
         - Dicts: Recursively sanitize values
         - Lists: Recursively sanitize items
         - Other: Return unchanged
+
+        Réservé au texte injecté dans un prompt (cf. `llm_chat`) : l'enveloppe
+        marque le contenu comme « contenu, jamais instruction ». Ne pas
+        l'utiliser sur la sortie d'un outil, où elle casserait les
+        identifiants Asterisk.
         """
         if isinstance(value, str):
             safe_text = neutralize_suspicious_patterns(value)
@@ -57,4 +62,19 @@ class DataSanitizerImpl(DataSanitizer):
             return {key: self.sanitize(val) for key, val in value.items()}
         if isinstance(value, list):
             return [self.sanitize(item) for item in value]
+        return value
+
+    def neutralize(self, value: Any) -> Any:
+        """Recursively neutralize suspicious patterns, keeping the structure.
+
+        La valeur reste exploitable : un nom de canal, de file ou de trunk
+        renvoyé par Asterisk revient tel quel, sauf s'il contient une phrase
+        d'injection, qui est alors marquée `[NEUTRALIZED ...]`.
+        """
+        if isinstance(value, str):
+            return neutralize_suspicious_patterns(value)
+        if isinstance(value, dict):
+            return {key: self.neutralize(val) for key, val in value.items()}
+        if isinstance(value, list):
+            return [self.neutralize(item) for item in value]
         return value

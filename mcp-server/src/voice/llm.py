@@ -23,4 +23,5 @@ def build_llm(settings: VoiceSettings) -> LanguageModel:
         system_prompt=settings.llm_system_prompt,
         temperature=0.3,
         num_predict=settings.llm_num_predict,
+        timeout=settings.llm_timeout_s,
     )

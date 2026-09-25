@@ -1,8 +1,11 @@
 # src/voice/audio.py
 """slin16 audio helpers: framing, energy VAD, utterance endpointing.
 
-slin16 = signed linear PCM, 16-bit little-endian, mono. Asterisk External Media
-delivers it at 16 kHz when the channel format is ``slin16``.
+slin16 = signed linear PCM, 16-bit, mono. Asterisk External Media delivers it
+**big-endian** (network byte order) at 16 kHz when the channel format is
+``slin16``. Everything inside this module works on **little-endian** (native)
+samples, so the byte swap happens at the RTP boundary — see
+:func:`to_little_endian` / :func:`to_big_endian`.
 """
 from __future__ import annotations
 
@@ -15,6 +18,28 @@ try:  # stdlib until 3.12, `audioop-lts` backport on 3.13+
     import audioop  # type: ignore
 except ModuleNotFoundError:  # pragma: no cover - exercised on 3.13+ without backport
     audioop = None
+
+
+def _swap(pcm16: bytes) -> bytes:
+    usable = pcm16[: len(pcm16) - (len(pcm16) % 2)]
+    if not usable:
+        return b""
+    samples = array.array("h")
+    if samples.itemsize != 2:  # pragma: no cover - exotic platform
+        raise RuntimeError("endianness swap requires 16-bit samples")
+    samples.frombytes(usable)
+    samples.byteswap()
+    return samples.tobytes()
+
+
+def to_little_endian(pcm16: bytes) -> bytes:
+    """RTP payload (big-endian, as sent by Asterisk) -> native PCM16."""
+    return _swap(pcm16)
+
+
+def to_big_endian(pcm16: bytes) -> bytes:
+    """Native PCM16 (Piper/whisper output) -> RTP payload (big-endian)."""
+    return _swap(pcm16)
 
 
 def frame_rms(pcm16: bytes) -> float:

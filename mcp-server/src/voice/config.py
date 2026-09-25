@@ -27,7 +27,10 @@ class VoiceSettings:
     min_utterance_ms: int = field(default_factory=lambda: _env_int("MIN_UTTERANCE_MS", 300))
 
     # STT — faster-whisper
-    stt_model: str = field(default_factory=lambda: _env("STT_MODEL", "small"))
+    # `small` coûte ~14 s de transcription CPU par tour (RTF 2.6) : inutilisable
+    # en direct. `base` tient ~2.3 s (RTF 0.4) et reste correct ; descendre à
+    # `tiny` (~1.3 s) si la réactivité prime sur la précision.
+    stt_model: str = field(default_factory=lambda: _env("STT_MODEL", "base"))
     stt_device: str = field(default_factory=lambda: _env("STT_DEVICE", "cpu"))
     stt_compute_type: str = field(default_factory=lambda: _env("STT_COMPUTE_TYPE", "int8"))
     stt_language: str = field(default_factory=lambda: _env("STT_LANGUAGE", "fr"))
@@ -42,6 +45,9 @@ class VoiceSettings:
         "en une à deux phrases courtes, sans formatage.",
     ))
     llm_num_predict: int = field(default_factory=lambda: _env_int("LLM_NUM_PREDICT", 80))
+    # Le modèle à froid met ~200 s à se charger depuis le disque : 60 s (defaut
+    # de l'adaptateur) ferait echouer le premier tour d'un appel.
+    llm_timeout_s: float = field(default_factory=lambda: _env_float("LLM_TIMEOUT_S", 300.0))
 
     # TTS — Piper
     tts_voice: str = field(default_factory=lambda: _env("TTS_VOICE", "fr_FR-siwis-medium"))
@@ -53,10 +59,12 @@ class VoiceSettings:
     ari_password: str = field(default_factory=lambda: _env("ASTERISK_ARI_PASSWORD", "mcp_ari"))
     ari_app: str = field(default_factory=lambda: _env("ASTERISK_ARI_APP", "mcp-voice"))
     rtp_host: str = field(default_factory=lambda: _env("VOICE_RTP_HOST", "0.0.0.0"))
+    # Port de BASE : chaque appel concurrent prend base+1, base+2, …
     rtp_port: int = field(default_factory=lambda: _env_int("VOICE_RTP_PORT", 40000))
 
-    # Budget de latence global (STT + LLM + TTS), en millisecondes
-    latency_budget_ms: int = field(default_factory=lambda: _env_int("LATENCY_BUDGET_MS", 1500))
+    # Budget de latence global (STT + LLM + TTS), en millisecondes. 1500 ms
+    # suppose un GPU ; sur CPU (STT ~2.3 s + LLM 3B ~10 s), on est à ~20 s.
+    latency_budget_ms: int = field(default_factory=lambda: _env_int("LATENCY_BUDGET_MS", 20000))
 
     @property
     def frame_bytes(self) -> int:

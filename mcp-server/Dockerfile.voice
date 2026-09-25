@@ -18,15 +18,25 @@ COPY pyproject.toml ./
 RUN pip install --upgrade pip && pip install ".[voice]"
 
 COPY src/ ./src/
+# Volontairement PAS de `pip install .` : les sources vivent dans /app/src et le
+# CMD lance `python -m src.voice.runner` depuis /app. Installer le paquet
+# dupliquerait le code dans site-packages (deux sources de vérité divergentes :
+# un `python /tmp/x.py` importerait la copie figée au build).
 
-# Télécharge la voix Piper française au build (peut être monté en volume à la place).
-RUN mkdir -p /models/piper && \
-    curl -sL -o /models/piper/fr_FR-siwis-medium.onnx \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx" && \
-    curl -sL -o /models/piper/fr_FR-siwis-medium.onnx.json \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json" \
-    || echo "voix Piper non téléchargée au build — montez /models/piper en volume"
+# Les modèles sont cuits dans l'image : un volume monté sur /models ne peut plus
+# les masquer. Tout échec de téléchargement fait échouer le build.
+ARG STT_MODEL=base
+ARG TTS_VOICE=fr_FR-siwis-medium
+RUN set -eux; \
+    mkdir -p /models/piper /models/hf; \
+    base="https://huggingface.co/rhasspy/piper-voices/resolve/main/fr/fr_FR/siwis/medium"; \
+    curl -fsSL --retry 3 -o "/models/piper/${TTS_VOICE}.onnx" "${base}/${TTS_VOICE}.onnx"; \
+    curl -fsSL --retry 3 -o "/models/piper/${TTS_VOICE}.onnx.json" "${base}/${TTS_VOICE}.onnx.json"; \
+    test -s "/models/piper/${TTS_VOICE}.onnx"; \
+    STT_MODEL="${STT_MODEL}" python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['STT_MODEL'], device='cpu', compute_type='int8'); print('whisper', os.environ['STT_MODEL'], 'pret')"
 
-EXPOSE 40000/udp
+# 40000 = port de base RTP ; les appels concurrents prennent 40001, 40002, …
+EXPOSE 40000-40063/udp
+EXPOSE 9092/tcp
 
 CMD ["python", "-m", "src.voice.runner"]

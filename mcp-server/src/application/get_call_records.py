@@ -15,4 +15,4 @@ class GetCallRecordsUseCase:
     async def execute(self, limit: int = 20) -> list:
         limit = max(1, min(int(limit), self.MAX_LIMIT))
         records = await self._gateway.get_recent_cdr(limit=limit)
-        return self._sanitizer.sanitize([r.to_dict() for r in records])
+        return self._sanitizer.neutralize([r.to_dict() for r in records])

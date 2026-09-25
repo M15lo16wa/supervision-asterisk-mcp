@@ -1,10 +1,16 @@
 """Module 3 — VAD endpointing + S2S pipeline with lightweight doubles."""
 import struct
+from dataclasses import replace
 
 import pytest
 
 from src.domain.entities import CallQuality
-from src.voice.audio import UtteranceDetector, frame_rms
+from src.voice.audio import (
+    UtteranceDetector,
+    frame_rms,
+    to_big_endian,
+    to_little_endian,
+)
 from src.voice.config import VoiceSettings
 from src.voice.llm import EchoLLM
 from src.voice.pipeline import S2SPipeline, _split_sentences
@@ -19,6 +25,40 @@ def _tone(ms: int, sample_rate=16000, amp=8000) -> bytes:
 
 def _silence(ms: int, sample_rate=16000) -> bytes:
     return b"\x00\x00" * int(sample_rate * ms / 1000)
+
+
+def test_endianness_roundtrip_matches_native_samples():
+    """RTP (big-endian) <-> natif (little-endian) sans perte."""
+    native = _tone(20)
+    wire = to_big_endian(native)
+    assert wire != native  # les octets ont bien été inversés
+    assert to_little_endian(wire) == native
+
+
+def test_to_little_endian_is_symmetric_with_to_big_endian():
+    pcm = b"\x01\x02\x03\x04"
+    assert to_big_endian(to_little_endian(pcm)) == pcm
+
+
+def test_to_little_endian_ignores_odd_trailing_byte():
+    assert to_little_endian(b"\x01\x02\x03") == b"\x02\x01"
+
+
+async def test_rtp_endpoint_allocates_a_distinct_port_per_call():
+    """Deux canaux simultanés ne doivent pas se disputer le port de base."""
+    from src.voice import external_media
+
+    external_media._ports_in_use.clear()
+    settings = replace(VoiceSettings(), rtp_host="127.0.0.1")
+    try:
+        ep1, port1 = await external_media.open_rtp_endpoint(settings)
+        ep2, port2 = await external_media.open_rtp_endpoint(settings)
+        assert port1 != port2
+        assert port1 == settings.rtp_port  # le premier prend le port de base
+    finally:
+        ep1.close()
+        ep2.close()
+        external_media._ports_in_use.clear()
 
 
 def test_frame_rms_distinguishes_speech_from_silence():

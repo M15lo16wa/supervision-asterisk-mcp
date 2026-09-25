@@ -12,4 +12,4 @@ class GetTrunkUtilizationUseCase:
 
     async def execute(self) -> list:
         trunks = await self._gateway.get_trunks()
-        return self._sanitizer.sanitize([t.to_dict() for t in trunks])
+        return self._sanitizer.neutralize([t.to_dict() for t in trunks])

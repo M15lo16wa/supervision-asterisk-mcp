@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 
 import httpx
@@ -129,3 +130,22 @@ class OllamaLLM(LanguageModel):
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def warm_up(self) -> float:
+        """Charge le modèle avec une requête d'un token et renvoie la durée (s).
+
+        Le premier appel après un redémarrage d'Ollama doit charger ~2 Go depuis
+        le disque : sans préchauffage, le premier tour de parole d'un appel
+        vocal bloque plusieurs minutes.
+        """
+        payload = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": "ok"}],
+            "stream": False,
+            "keep_alive": -1,
+            "options": {"num_predict": 1, "temperature": 0.0},
+        }
+        started = time.perf_counter()
+        r = await self._client.post("/api/chat", json=payload)
+        r.raise_for_status()
+        return time.perf_counter() - started

@@ -144,7 +144,18 @@ class DataSanitizer(ABC):
     @abstractmethod
     def sanitize(self, value: Any) -> Any:
         """Wrap untrusted external data in an explicit envelope and neutralise
-        suspicious instruction-like patterns. Recurses through str/dict/list."""
+        suspicious instruction-like patterns. Recurses through str/dict/list.
+
+        Réservé au texte destiné au LLM (contexte de ``llm_chat``)."""
+        ...
+
+    @abstractmethod
+    def neutralize(self, value: Any) -> Any:
+        """Neutralise suspicious patterns *without* the envelope.
+
+        Utilisé sur les payloads retournés par les outils : les identifiants
+        (nom de canal, file, trunk, uniqueid CDR) doivent rester utilisables
+        tels quels par l'appelant pour enchaîner les appels."""
         ...
 
 

@@ -68,9 +68,14 @@ class PassthroughSanitizer(DataSanitizer):
 
     def __init__(self):
         self.seen = []
+        self.neutralized = []
 
     def sanitize(self, value):
         self.seen.append(value)
+        return value
+
+    def neutralize(self, value):
+        self.neutralized.append(value)
         return value
 
 

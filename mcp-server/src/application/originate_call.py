@@ -27,4 +27,4 @@ class OriginateCallUseCase:
         # 2. Exécution
         result = await self._gateway.originate(endpoint, context, exten)
         # 3. Assainissement de la sortie
-        return self._sanitizer.sanitize(result.to_dict())
+        return self._sanitizer.neutralize(result.to_dict())
