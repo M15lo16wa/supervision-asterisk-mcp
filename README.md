@@ -308,6 +308,12 @@ Comptes de test (realm `asterisk`, mot de passe `admin`) :
 **Via MCP Inspector :**
 
 ```bash
+sudo apt update
+sudo apt install curl -y
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+source ~/.bashrc
+nvm --version
+nvm install 22
 npx @modelcontextprotocol/inspector
 # Transport: Streamable HTTP | URL: http://localhost:8000/mcp
 # Authentication: Bearer Token | Token: <access_token>
@@ -453,45 +459,6 @@ En mode `static` (sans Keycloak), trois jetons opaques suffisent :
 personnalisables via `MCP_STATIC_TOKENS`).
 
 ---
-## Composants externes et stacks additionnelles
-
-Le socle (`docker-compose.yml` racine) n'orchestre que **PostgreSQL +
-Keycloak + serveur MCP**. Deux catégories de briques complètent le système :
-
-### Reste externe (à connecter manuellement)
-
-| Brique | Rôle | Config fournie ici |
-|---|---|---|
-| **Asterisk 20/22** | PBX (AMI/ARI/Stasis) — conteneur Docker **ou** bare metal | `asterisk/config/` (modèles) + `scripts/setup_test_asterisk.sh` (Docker) |
-
-**Conteneur Docker** (même hôte) :
-
-```bash
-docker network connect --alias asterisk supervision-net <nom_conteneur_asterisk>
-./scripts/setup_test_asterisk.sh <nom_conteneur_asterisk>
-```
-
-**Bare metal / système** (machine distante) : configurer manuellement
-`/etc/asterisk/` sur Ubuntu — voir « Option B » dans la section 2 du guide
-d'utilisation.
-
-### Gérées par une stack dédiée (`monitoring/docker-compose.yml`)
-
-| Brique | Rôle | Config fournie ici |
-|---|---|---|
-| **Ollama** | LLM local du pipeline S2S et des prompts superviseur | `monitoring/.env` (`OLLAMA_MODEL`, défaut `qwen2.5:3b-instruct`) |
-| **Prometheus** | collecte des métriques | `monitoring/prometheus/prometheus.yml` |
-| **Grafana** | dashboards | `monitoring/grafana/provisioning/` (datasource + dashboards) |
-
-```bash
-cd monitoring
-cp .env.example .env
-docker compose up -d
-```
-
-Cette stack se rattache au réseau `supervision-net` créé par le socle
-(`external: true` dans `monitoring/docker-compose.yml`) — lancez donc toujours
-le compose racine **avant** celui de `monitoring/`.
 
 ## Architecture
 
