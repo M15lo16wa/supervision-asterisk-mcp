@@ -95,7 +95,6 @@ docker compose ps
 | Service | URL |
 |---|---|
 | Keycloak | http://localhost:8080 (console `admin` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) |
-| Serveur MCP | http://localhost:8000/mcp |
 | Métriques | http://localhost:8000/metrics |
 
 ### 2. Brancher Asterisk
