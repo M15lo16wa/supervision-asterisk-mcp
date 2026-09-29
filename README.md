@@ -286,7 +286,7 @@ lit `ASTERISK_HOST`/`ASTERISK_AMI_USER`/`ASTERISK_AMI_SECRET` de l'environnement
 ou du `.env` racine) :
 
 ```bash
-PYTHONPATH=mcp-server python scripts/live_test_asterisk.py
+PYTHONPATH=mcp-server python scripts/live_test_asterisk.py (facultative)
 ```
 
 ### 3. Obtenir un jeton
