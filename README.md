@@ -138,7 +138,7 @@ Les valeurs ci-dessus sont celles déployées par
 [`asterisk/config/`](asterisk/config/) — **développement uniquement**, à
 changer en production (voir l'avertissement en fin de document).
 
-#### Option B — Bare metal / système (machine distante)
+#### Option B — Au niveau du système
 
 Asterisk est installé au niveau système sur une machine Ubuntu (ou autre).
 Pas de `docker exec` ni de `docker network connect` — la configuration se fait
