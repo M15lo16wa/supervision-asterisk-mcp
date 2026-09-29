@@ -330,7 +330,7 @@ curl -s http://localhost:8000/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_active_channels","arguments":{}}}'
 ```
 
-### 5. Pipeline vocal S2S (optionnel)
+### 5. Pipeline vocal S2S
 
 Nécessite un **Ollama** joignable et les extras `voice`. Deux options pour
 Ollama : le conteneur de la stack `monitoring/` (recommandée, section 6) ou un
@@ -411,7 +411,7 @@ Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
 Grafana charge automatiquement la datasource Prometheus et les dashboards du
 dossier `monitoring/grafana/dashboards/` via provisioning.
 
-**Intégration Keycloak (optionnelle) :** pour que Grafana délègue son
+**Intégration Keycloak :** pour que Grafana délègue son
 authentification au même Keycloak que le reste du système (cohérent avec le
 rapport §6.4), créez un client OIDC `grafana` dans Keycloak (confidentiel,
 redirect URI `http://localhost:3000/login/generic_oauth`), puis dans
