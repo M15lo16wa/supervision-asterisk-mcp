@@ -4,7 +4,7 @@
   "tags": ["asterisk", "mcp", "s2s"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "15s",
   "time": { "from": "now-1h", "to": "now" },
   "templating": { "list": [] },
@@ -23,7 +23,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(mcp_tool_calls_total[5m])) * 60" }
+        { "refId": "A", "expr": "sum(rate(mcp_tool_calls_total[$__range])) * 60" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 }, "overrides": [] }
     },
@@ -34,7 +34,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "sum(increase(mcp_rbac_denials_total[1h]))" }
+        { "refId": "A", "expr": "sum(increase(mcp_rbac_denials_total[$__range]))" }
       ],
       "fieldConfig": {
         "defaults": {
@@ -54,7 +54,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         { "refId": "A", "legendFormat": "{{outcome}}",
-          "expr": "sum by (outcome) (increase(mcp_hitl_total[1h]))" }
+          "expr": "sum by (outcome) (increase(mcp_hitl_total[$__range]))" }
       ],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
     },
@@ -64,7 +64,7 @@
       "id": 4,
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "refId": "A", "expr": "mcp_active_channels" } ],
+      "targets": [ { "refId": "A", "expr": "max(asterisk_channels_count)" } ],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
     },
     {
@@ -115,7 +115,7 @@
       "id": 8,
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 22 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "refId": "A", "expr": "voice_active_calls" } ],
+      "targets": [ { "refId": "A", "expr": "max(voice_active_calls)" } ],
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
     },
     {
@@ -126,7 +126,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         { "refId": "A",
-          "expr": "100 * sum(increase(voice_turns_total{within_budget=\"true\"}[1h])) / clamp_min(sum(increase(voice_turns_total[1h])), 1)" }
+          "expr": "100 * (sum(increase(voice_turns_total{within_budget=\"true\"}[$__range])) or vector(0)) / clamp_min(sum(increase(voice_turns_total[$__range])) or vector(0), 1)" }
       ],
       "fieldConfig": {
         "defaults": {
@@ -144,7 +144,7 @@
       "id": 10,
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 22 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [ { "refId": "A", "expr": "sum(increase(voice_budget_exceeded_total[1h]))" } ],
+      "targets": [ { "refId": "A", "expr": "sum(increase(voice_budget_exceeded_total[$__range]))" } ],
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -220,7 +220,7 @@
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(mcp_llm_calls_total[5m])) * 60" }
+        { "refId": "A", "expr": "sum(rate(mcp_llm_calls_total[$__range])) * 60" }
       ],
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 1 }, "overrides": [] }
     },
@@ -252,7 +252,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         { "refId": "A",
-          "expr": "sum(increase(mcp_llm_calls_total{status=\"error\"}[1h]))" }
+          "expr": "sum(increase(mcp_llm_calls_total{status=\"error\"}[$__range]))" }
       ],
       "fieldConfig": {
         "defaults": {
