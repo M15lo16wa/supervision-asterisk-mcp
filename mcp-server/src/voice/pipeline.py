@@ -26,7 +26,7 @@ from src.domain.entities import VoiceTurn
 from src.domain.exceptions import VoicePipelineError
 from src.domain.ports import LanguageModel, SpeechToText, TextToSpeech
 from src.observability import metrics
-from src.voice.audio import UtteranceDetector, iter_frames
+from src.voice.audio import UtteranceDetector, frame_rms, iter_frames
 from src.voice.config import VoiceSettings
 
 logger = logging.getLogger(__name__)
@@ -150,11 +150,27 @@ class S2SPipeline:
         )
         frame_bytes = self._s.frame_bytes
         leftover = b""
+        # Diagnostic d'un appel muet : logge le niveau (RMS) réel reçu une fois
+        # par seconde pour distinguer « silence total » (micro/routage) de
+        # « audio présent mais sous le seuil VAD » (VAD_ENERGY_THRESHOLD).
+        _n = 0
+        _sum = 0.0
+        _max = 0.0
         async for chunk in frames:
             data = leftover + chunk
             usable = len(data) - (len(data) % frame_bytes)
             leftover = data[usable:]
             for frame in iter_frames(data[:usable], frame_bytes):
+                rms = frame_rms(frame)
+                _n += 1
+                _sum += rms
+                _max = max(_max, rms)
+                if _n % 50 == 0:
+                    logger.info(
+                        "vad-diag %s: frames=%d avg_rms=%.0f max_rms=%.0f seuil=%.0f",
+                        channel_id, int(_n), _sum / 50, _max, self._s.vad_energy_threshold,
+                    )
+                    _sum = _max = 0.0
                 result = detector.push(frame)
                 if not result.utterance_ended:
                     continue
