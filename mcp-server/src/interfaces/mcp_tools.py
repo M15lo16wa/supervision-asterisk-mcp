@@ -57,19 +57,12 @@ from src.domain.exceptions import (
     LlmUnavailableError,
     UnauthorizedAction,
 )
+from src.domain.legal import SPY_LEGAL_NOTICE
 from src.observability import metrics
 from src.security.auth import build_auth_provider, get_security_manager
 from src.security.sanitizer import DataSanitizerImpl
 
 logger = logging.getLogger(__name__)
-
-SPY_LEGAL_NOTICE = (
-    "AVERTISSEMENT LÉGAL — L'écoute (ChanSpy) et l'enregistrement de communications "
-    "sont strictement encadrés. Assurez-vous d'une base légale, de l'information "
-    "préalable des personnes concernées et, le cas échéant, de leur consentement, "
-    "conformément au RGPD et au droit local des télécommunications. Toute écoute "
-    "est tracée dans le journal d'audit."
-)
 
 mcp = FastMCP(name="asterisk-mcp-supervision", auth=build_auth_provider())
 
@@ -126,8 +119,17 @@ async def _guarded(
     ctx: Context | None = None,
     params: dict | None = None,
     hitl_in_usecase: bool = False,
+    pre_check: Callable[[], dict | None] | None = None,
 ) -> dict:
-    """RBAC + consentement + exécution + mapping d'erreur + audit + métriques."""
+    """RBAC + consentement + exécution + mapping d'erreur + audit + métriques.
+
+    ``pre_check`` : verrou additionnel propre à l'outil, exécuté **après** le
+    RBAC et avant l'exécution (ordre volontaire : on n'exige pas une
+    attestation de base légale d'un acteur qui n'a pas le droit d'agir).
+    Il renvoie ``None`` pour passer, sinon la réponse d'erreur ; l'événement
+    d'audit reprend ``_event`` et porte le ``client_id``/``request_id`` de la
+    requête, comme les autres entrées.
+    """
     actor = _username(token)
     client_id = getattr(token, "client_id", "") or ""
     params = params or {}
@@ -143,6 +145,17 @@ async def _guarded(
             audit_log("rbac_denied", actor=actor, tool=tool, outcome="unauthorized",
                       client_id=client_id, params=params, detail=str(e), request_id=rid)
             return {"status": "error", "error": "unauthorized", "detail": str(e)}
+
+        # 1b. Verrou propre à l'outil — après le RBAC (voir docstring).
+        if pre_check is not None:
+            denial = pre_check()
+            if denial is not None:
+                event = denial.pop("_event", "tool_refused")
+                metrics.tool_result(tool, "cancelled")
+                audit_log(event, actor=actor, tool=tool, outcome="cancelled",
+                          client_id=client_id, params=params,
+                          detail=denial.get("detail"), request_id=rid)
+                return denial
 
         # 2. Consentement explicite pour TOUS les outils si MCP_HITL_MODE=all
         #    (les outils de pilotage font déjà leur propre HITL dans le use case).
@@ -414,27 +427,45 @@ async def spy_channel(
     except ValueError:
         return {"status": "error", "error": "bad_mode", "detail": f"mode invalide: {mode}"}
 
-    if not acknowledge_legal:
-        audit_log("spy_refused_legal", actor=actor, tool="spy_channel", outcome="cancelled",
-                  params={"target_channel": target_channel, "mode": mode},
-                  detail="acknowledge_legal manquant")
-        return {"status": "error", "error": "legal_acknowledgement_required",
-                "legal_notice": SPY_LEGAL_NOTICE}
-
     required = "admin" if spy_mode in (SpyMode.WHISPER, SpyMode.BARGE) else "superviseur"
+    request_id = _request_id(ctx)
+    client_id = getattr(token, "client_id", "") or ""
+
+    def legal_gate() -> dict | None:
+        """Verrou légal — exige `acknowledge_legal` quel que soit le mode.
+
+        Exécuté par `_guarded` **après** le RBAC : un acteur sans le droit
+        d'écouter n'est jamais invité à attester d'une base légale, et le
+        journal distingue nettement « pas de droits » de « pas de base légale ».
+        """
+        if acknowledge_legal:
+            return None
+        metrics.legal_denied("spy_channel", spy_mode.value)
+        return {
+            "_event": "spy_refused_legal",
+            "status": "error",
+            "error": "legal_acknowledgement_required",
+            "detail": "acknowledge_legal manquant",
+            "legal_notice": SPY_LEGAL_NOTICE,
+        }
 
     async def work():
         data = await StartChannelSpyUseCase(_gateway, FastMcpHitlConfirmation(ctx), _sanitizer).execute(
             target_channel=target_channel, supervisor_endpoint=supervisor_endpoint,
             mode=spy_mode, user=actor,
         )
+        # Preuve d'une écoute réelle : corrélée au client MCP et à la
+        # requête, avec l'attestation légale de l'opérateur (responsabilité).
         audit_log("channel_spy", actor=actor, tool="spy_channel", outcome="success",
+                  client_id=client_id, request_id=request_id,
                   params={"target_channel": target_channel, "supervisor": supervisor_endpoint,
-                          "mode": spy_mode.value})
+                          "mode": spy_mode.value, "acknowledge_legal": acknowledge_legal})
         if spy_mode in (SpyMode.WHISPER, SpyMode.BARGE):
             metrics.hitl_outcome("spy_channel", "confirmed")
         return {"spy": data, "legal_notice": SPY_LEGAL_NOTICE}
 
     return await _guarded("spy_channel", required, token, work, ctx=ctx,
                           hitl_in_usecase=(spy_mode in (SpyMode.WHISPER, SpyMode.BARGE)),
-                          params={"target_channel": target_channel, "mode": spy_mode.value})
+                          pre_check=legal_gate,
+                          params={"target_channel": target_channel, "mode": spy_mode.value,
+                                  "acknowledge_legal": acknowledge_legal})

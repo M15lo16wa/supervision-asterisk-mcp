@@ -56,6 +56,11 @@ RBAC_DENIALS = Counter(
 HITL_OUTCOMES = Counter(
     "mcp_hitl_total", "Résultats des confirmations Human-in-the-Loop", ["tool", "outcome"]
 )
+LEGAL_DENIALS = Counter(
+    "mcp_legal_denials_total",
+    "Refus pour défaut d'attestation de base légale (cadre RGPD/télécom)",
+    ["tool", "mode"],
+)
 ASTERISK_ERRORS = Counter(
     "mcp_asterisk_errors_total", "Erreurs de communication Asterisk", ["tool", "kind"]
 )
@@ -126,6 +131,10 @@ def rbac_denied(tool: str, required_role: str) -> None:
 
 def hitl_outcome(tool: str, outcome: str) -> None:
     HITL_OUTCOMES.labels(tool=tool, outcome=outcome).inc()
+
+
+def legal_denied(tool: str, mode: str) -> None:
+    LEGAL_DENIALS.labels(tool=tool, mode=mode).inc()
 
 
 def asterisk_error(tool: str, kind: str) -> None:
