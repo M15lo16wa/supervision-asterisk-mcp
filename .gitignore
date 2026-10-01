@@ -31,13 +31,21 @@ monitoring/prometheus/data/
 ollama/models/
 asterisk/recordings/
 
-# Modèles IA (téléchargés au premier démarrage)
-models/
+# Modèles IA (binaires lourds téléchargés au premier démarrage).
+# On ignore le CONTENU des dossiers `models/` (pas le dossier lui-même) afin de
+# pouvoir versionner les README de doc ; les binaires sont de toute façon
+# couverts par les règles d'extension, donc rien de lourd ne peut entrer.
+**/models/**
+!**/models/README.md
 *.gguf
 *.onnx
 *.bin
+*.safetensors
+*.pt
 
 # OS / IDE
 .DS_Store
+Thumbs.db
 .vscode/
 .idea/
+*.swp
