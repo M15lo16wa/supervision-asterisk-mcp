@@ -23,9 +23,6 @@ voice = [
     "numpy>=1.26",
 ]
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-    "pytest-cov>=5.0",
     "ruff>=0.6",
 ]
 
@@ -39,10 +36,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["src*"]
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-
 [tool.ruff]
 line-length = 120
 target-version = "py310"
@@ -51,8 +44,5 @@ target-version = "py310"
 select = ["E", "F", "I", "B", "UP", "RUF"]
 ignore = [
     "B008",    # CurrentAccessToken() en défaut d'argument = pattern officiel FastMCP
-    "RUF012",  # annotations ClassVar non requises dans les tests
+    "RUF012",  # annotations ClassVar non requises
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["F401"]

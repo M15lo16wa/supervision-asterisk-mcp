@@ -13,8 +13,9 @@ MCP_AUTH_MODE=static docker compose up -d
 ```
 
 Pour les étapes 1–3 du parcours, un conteneur Asterisk doit être joint au réseau
-et configuré (`docker network connect supervision-net <asterisk>` +
-`./scripts/setup_test_asterisk.sh <asterisk>`).
+et configuré (`docker network connect supervision-net <asterisk>`), sa
+configuration étant rendue depuis [`asterisk/config/`](../asterisk/config/) par
+[`scripts/provision_asterisk.sh`](../scripts/provision_asterisk.sh).
 
 ## Lancer l'Inspector
 

@@ -78,7 +78,7 @@ confirm() {
 }
 
 # ─────────────────────────── secrets (.env) ───────────────────────────
-# Même contrat que setup_test_asterisk.sh : env > .env > génération.
+# Le .env est l'unique source de vérité : env > .env > génération.
 env_file_get() {
   [ -f "$ENV_FILE" ] || return 0
   sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\(.*\)$/\1/p" "$ENV_FILE" \

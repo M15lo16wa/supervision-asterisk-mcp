@@ -9,7 +9,6 @@ secrets/
 # Journaux d'audit / logs runtime
 logs/
 *.jsonl
-loadtest/loadtest_stats.csv
 
 # Python
 __pycache__/
@@ -19,7 +18,6 @@ __pycache__/
 venv/
 *.egg-info/
 .ruff_cache/
-.pytest_cache/
 .mypy_cache/
 htmlcov/
 .coverage

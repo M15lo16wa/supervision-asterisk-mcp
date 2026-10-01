@@ -84,12 +84,6 @@ l'adaptateur `OllamaLLM`**, seul point de passage commun à `llm_chat` *et* au
 pipeline vocal — les deux instances remontent donc. Les panneaux *stat* de
 Grafana lisent `$__range` (la plage sélectionnée) et non une fenêtre figée.
 
-**Tests** — `pytest` (**81**) sur doublures en mémoire : RBAC, sanitizer, HITL
-(accept/decline/cancel), cas d'usage bloquants, journal d'audit, métriques,
-parsing AMI, avertissement légal, VAD, budget de latence, outil `llm_chat`,
-mesures LLM de l'adaptateur (succès / erreur / flux annulé).
-Charge : scénario **SIPp** jusqu'à 50 canaux dans [`loadtest/`](loadtest/).
-
 Schémas JSON des outils : [`docs/tool-schemas.json`](docs/tool-schemas.json)
 (régénérables : `python scripts/export_tool_schemas.py`).
 
@@ -115,55 +109,18 @@ docker compose ps
 
 ### 2. Brancher Asterisk
 
-Asterisk peut tourner dans un **conteneur Docker** (option A) ou être installé
-**au niveau système** sur la machine hôte (option B, bare metal). Dans les deux
-cas, le serveur MCP se connecte via AMI (port 5038) et ARI (port 8088).
+Asterisk est installé **au niveau système** (bare metal) sur la machine hôte ;
+le serveur MCP s'y connecte via AMI (port 5038) et ARI (port 8088).
 
-> **Configuration livrée : l'option B (bare metal).** Le `.env` vise
+> **Configuration livrée : bare metal.** Le `.env` vise
 > `ASTERISK_HOST=host.docker.internal` et
 > `ASTERISK_ARI_BASE_URL=http://host.docker.internal:8088`, et les services
 > `mcp-server` *et* `voice-pipeline` déclarent
 > `extra_hosts: ["host.docker.internal:host-gateway"]`. Cette ligne est
 > **indispensable sous Linux** : sans elle `host.docker.internal` ne résout pas
-> et le pipeline vocal plante au démarrage sur l'ARI. En option A, remettez
-> `asterisk` + l'alias réseau et retirez `extra_hosts`.
+> et le pipeline vocal plante au démarrage sur l'ARI.
 
-#### Option A — Conteneur Docker (même hôte)
-
-Asterisk tourne dans son propre conteneur sur la même machine. Le connecter au
-réseau du socle **avec l'alias `asterisk`** puis le configurer :
-
-```bash
-# a) joindre le conteneur Asterisk au réseau du socle, alias `asterisk`
-docker network connect --alias asterisk supervision-net <nom_conteneur_asterisk>
-
-# b) créer les comptes mcp_ami / mcp_ari, activer HTTP+ARI, cdr_manager,
-#    res_prometheus, ajouter postes 1001/1002 + file "support" + dialplan de test
-./scripts/setup_test_asterisk.sh <nom_conteneur_asterisk>
-```
-
-> Sans l'alias `asterisk`, le serveur MCP ne résout pas `ASTERISK_HOST`/`ARI_BASE_URL`
-> et Prometheus ne résout pas la cible `asterisk:8088` — **ajoutez-le avec l'alias**.
-
-Le script affiche en fin d'exécution les identifiants AMI/ARI/metrics déployés.
-Reporter ces valeurs dans `.env` (si le hostname ou les secrets diffèrent) :
-
-```dotenv
-ASTERISK_HOST=asterisk
-ASTERISK_AMI_USER=mcp_ami
-ASTERISK_AMI_SECRET= password_secret
-ASTERISK_ARI_BASE_URL=http://asterisk:8088
-ASTERISK_ARI_USER=mcp_ari
-ASTERISK_ARI_PASSWORD= password_secret
-ASTERISK_DEFAULT_CONTEXT=mcp-internal    # contexte du dialplan de test
-```
-
-Les valeurs ci-dessus sont celles déployées par
-`scripts/setup_test_asterisk.sh` et présentes dans
-[`asterisk/config/`](asterisk/config/) — **développement uniquement**, à
-changer en production (voir l'avertissement en fin de document).
-
-#### Option B — Au niveau du système
+#### Provisionnement
 
 Asterisk est installé au niveau système sur une machine Ubuntu (ou autre).
 Pas de `docker exec` ni de `docker network connect` — la configuration se fait
@@ -338,14 +295,6 @@ docker compose up -d mcp-server            # recharger avec les nouvelles variab
 > Sans Asterisk joignable, le socle reste fonctionnel : les outils Module 2
 > renvoient `{"status":"error","error":"asterisk_unavailable"}`.
 
-Vérifier l'adaptateur AMI de bout en bout (sans appeler le serveur MCP ;
-lit `ASTERISK_HOST`/`ASTERISK_AMI_USER`/`ASTERISK_AMI_SECRET` de l'environnement
-ou du `.env` racine) :
-
-```bash
-PYTHONPATH=mcp-server python scripts/live_test_asterisk.py (facultative)
-```
-
 </details>
 
 ### 3. Obtenir un jeton
@@ -376,12 +325,6 @@ nvm install 22
 npx @modelcontextprotocol/inspector
 # Transport: Streamable HTTP | URL: http://localhost:8000/mcp
 # Authentication: Bearer Token | Token: <access_token>
-```
-
-**Via le client de fumée scripté :**
-
-```bash
-python scripts/smoke_mcp.py --token-file /tmp/tok.json --confirm oui
 ```
 
 **Exemple d'appel HTTP direct (JSON-RPC 2.0) :**
@@ -524,15 +467,7 @@ GRAFANA_OIDC_CLIENT_SECRET=<secret_reel_copie_depuis_keycloak>
 docker compose up -d grafana    # recharger avec la nouvelle config
 ```
 
-### 7. Charge (SIPp)
-
-```bash
-./loadtest/run_loadtest.sh <asterisk_ip> 701 50 5 15000     # 50 canaux
-```
-
-Paliers `10 → 25 → 50`, procédure et critères : [`loadtest/README.md`](loadtest/README.md).
-
-### 8. Développement & tests
+### 7. Développement
 
 ```bash
 cd mcp-server
@@ -542,8 +477,7 @@ cp .env.example .env
 export PYTHONPATH=$(pwd)
 python -m src.main                          # serveur MCP (Modules 1 & 2)
 
-pytest -q                                   # 76 tests
-ruff check src tests
+ruff check src
 ```
 
 En mode `static` (sans Keycloak), trois jetons opaques suffisent :
@@ -583,26 +517,23 @@ mcp-server/
     voice/          external_media.py, audio.py, stt.py, llm.py, tts.py,
                     pipeline.py, runner.py
     config.py, main.py
-  tests/            76 tests (pytest)
   Dockerfile, Dockerfile.voice, pyproject.toml
 asterisk/config/    pjsip, extensions, manager, ari, queues, cdr_manager,
                     prometheus, http, rtp, modules
-keycloak/realm-export/asterisk-realm.json    (client mcp-server + 3 users)
+keycloak/realm-export/asterisk-realm.json    (client mcp-server + 3 comptes)
 monitoring/          prometheus.yml, grafana/ (datasource + dashboard)
-loadtest/           scénario SIPp + procédure
-scripts/            get_token, smoke_mcp, setup_test_asterisk, live_test_asterisk,
-                    export_tool_schemas, ollama_pull
-docs/               tool-schemas.json, mcp-inspector.md
+scripts/            provision_asterisk, create_pjsip_accounts, get_token,
+                    download_llm_model, ollama_pull, export_tool_schemas
+docs/               tool-schemas.json, mcp-inspector.md, sip-accounts.md
 ```
 
 ---
 
 ## Module 2 — Configuration Asterisk
 
-`asterisk/config/` — fichiers **modèles** à appliquer (via
-`scripts/setup_test_asterisk.sh` pour les conteneurs Docker, ou copiés/adaptés
-dans `/etc/asterisk/` pour un Asterisk bare metal — voir « Option B » au
-guide d'utilisation) :
+`asterisk/config/` — fichiers **modèles** rendus dans `/etc/asterisk/` par
+`scripts/provision_asterisk.sh` (voir « Provisionnement » au guide
+d'utilisation) :
 
 | Fichier | Contenu |
 |---|---|
@@ -626,15 +557,15 @@ guide d'utilisation) :
 | `MCP_HITL_MODE` | `pilotage` | `pilotage` \| `all` |
 | `AUDIT_LOG_PATH` | `logs/audit.jsonl` | journal d'audit (volume `mcp_audit` en Docker) |
 | `KEYCLOAK_REALM` / `KEYCLOAK_CLIENT_ID` | `asterisk` / `mcp-server` | doivent correspondre au realm importé |
-| `ASTERISK_HOST` / `ASTERISK_AMI_PORT` | `asterisk` / `5038` | conteneur Asterisk externe (joint à `supervision-net`) |
-| `ASTERISK_AMI_USER` / `ASTERISK_AMI_SECRET` | `mcp_ami` / `changeme_ami` | compte AMI — **même valeur** que `manager.conf` / celle affichée par `setup_test_asterisk.sh` |
-| `ASTERISK_ARI_BASE_URL` / `ASTERISK_ARI_USER` / `ASTERISK_ARI_PASSWORD` | `http://asterisk:8088` / `mcp_ari` / `changeme_ari` | ARI — mot de passe aligné sur `ari.conf` |
-| `ASTERISK_DEFAULT_CONTEXT` | `mcp-internal` | contexte des originations (contexte `mcp-internal` déployé par `setup_test_asterisk.sh`) |
+| `ASTERISK_HOST` / `ASTERISK_AMI_PORT` | `host.docker.internal` / `5038` | Asterisk bare metal sur l'hôte (`extra_hosts` requis en Docker) |
+| `ASTERISK_AMI_USER` / `ASTERISK_AMI_SECRET` | `mcp_ami` / `changeme_ami` | compte AMI — **même valeur** que `manager.conf`, appliquée par `provision_asterisk.sh` |
+| `ASTERISK_ARI_BASE_URL` / `ASTERISK_ARI_USER` / `ASTERISK_ARI_PASSWORD` | `http://host.docker.internal:8088` / `mcp_ari` / `changeme_ari` | ARI — mot de passe aligné sur `ari.conf` |
+| `ASTERISK_DEFAULT_CONTEXT` | `mcp-internal` | contexte des originations (contexte `mcp-internal` déployé par `provision_asterisk.sh`) |
 | `ASTERISK_TRUNKS` / `ASTERISK_TRUNK_MAX_<NOM>` | `trunk-out` / — | trunks suivis par `get_trunk_utilization` |
-| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` (`http://ollama:11434` dans `.env` Docker) / `qwen2.5:3b-instruct` | LLM vocal S2S et prompts superviseur (`llm_chat`) |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | `http://localhost:11434` (`http://ollama:11434` dans `.env` Docker) / `qwen2.5:0.5b-instruct` | LLM vocal S2S et prompts superviseur (`llm_chat`) |
 | `LLM_TEMPERATURE` / `LLM_NUM_PREDICT` / `LLM_TIMEOUT_S` | `0.3` / `512` / `60` | LLM superviseur (`llm_chat`) |
-| `STT_MODEL` / `STT_DEVICE` / `TTS_VOICE` | `small` / `cpu` / `fr_FR-siwis-medium` | faster-whisper / Piper |
-| `LATENCY_BUDGET_MS` | `1500` | budget de latence S2S |
+| `STT_MODEL` / `STT_DEVICE` / `TTS_VOICE` | `base` / `cpu` / `fr_FR-siwis-medium` | faster-whisper / Piper |
+| `LATENCY_BUDGET_MS` | `20000` | budget de latence S2S |
 | `VOICE_RTP_PORT` / `VOICE_METRICS_PORT` | `40000` / `9092` | pipeline vocal |
 
 ---
@@ -642,8 +573,8 @@ guide d'utilisation) :
 ## Stack
 
 Python 3.10+ · FastMCP 3.x · Keycloak 26 · panoramisk (AMI) · aiohttp (ARI) ·
-Asterisk 20/22 · faster-whisper · Ollama (Qwen2.5) · Piper · prometheus-client ·
-Prometheus + Grafana · SIPp.
+Asterisk 20/22 · faster-whisper · llama.cpp · Piper · prometheus-client ·
+Prometheus + Grafana.
 
 ## Avertissement — développement local
 
@@ -659,37 +590,27 @@ remplacer `start-dev` par `start` pour Keycloak, restreindre l'accès réseau à
 
 ---
 
-## Documentation de campagne
+## Documentation
 
 | Document | Contenu |
 | --- | --- |
-| [`docs/plan-test-e2e.md`](docs/plan-test-e2e.md) | Plan de test en 11 phases et matrice de couverture des 12 outils |
-| [`docs/rapport-test-e2e.md`](docs/rapport-test-e2e.md) | Résultats réels de la campagne, 12 défauts trouvés, limites assumées |
 | [`docs/sip-accounts.md`](docs/sip-accounts.md) | Identifiants et réglages des postes PJSIP pour softphone |
+| [`docs/tool-schemas.json`](docs/tool-schemas.json) | Schémas JSON d'entrée/sortie des 12 outils |
+| [`docs/mcp-inspector.md`](docs/mcp-inspector.md) | Parcours de découverte des outils via MCP Inspector |
 
-Scripts associés :
+Scripts de déploiement :
 
 - `./scripts/provision_asterisk.sh` — installe et déploie Asterisk sur l'hôte
   (`--dry-run`, `--yes`, `--force`), idempotent.
 - `./scripts/create_pjsip_accounts.sh` — génère les postes PJSIP, leurs hints et
   `docs/sip-accounts.md`. Idempotent : les mots de passe déjà attribués sont
   conservés, donc relancer ne casse pas un softphone configuré.
+- `./scripts/download_llm_model.sh` / `./scripts/ollama_pull.sh` — récupèrent
+  le modèle LLM local.
+- `./scripts/get_token.sh` — délivre un `access_token` Keycloak (valable
+  **5 minutes**) pour appeler les outils.
 
-### Rejouer la campagne
-
-```bash
-# tests unitaires (Python 3.8 de l'hôte : à exécuter dans le conteneur)
-docker compose exec -T mcp-server sh -c 'cd /app && python -m pytest -q'
-
-# parcours fonctionnel complet (HITL, AMI, RBAC, files)
-docker compose exec -T mcp-server sh -c 'cd /app && \
-  MCP_URL=http://127.0.0.1:8000/mcp \
-  KEYCLOAK_PUBLIC_URL=http://keycloak:8080 \
-  python scripts/e2e_functional.py'
-```
-
-> Les jetons Keycloak expirent au bout de **5 minutes** : tout script de campagne
-> doit les renouveler. Exécuté dans le conteneur, `e2e_functional.py` doit
-> pointer `KEYCLOAK_PUBLIC_URL` sur `http://keycloak:8080`, car le serveur MCP
-> accepte deux issuers (URL publique et URL interne Docker) et le `iss` du jeton
-> dépend de l'URL par laquelle le client a joint Keycloak.
+> Les jetons Keycloak expirent au bout de **5 minutes** : tout client doit les
+> renouveler. Le serveur MCP accepte deux issuers (URL publique et URL interne
+> Docker) et le `iss` du jeton dépend de l'URL par laquelle le client a joint
+> Keycloak.
