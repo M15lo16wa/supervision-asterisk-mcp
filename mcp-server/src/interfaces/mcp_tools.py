@@ -185,7 +185,8 @@ async def _guarded(
                       client_id=client_id, params=params, detail=str(e), request_id=rid)
             return {"status": "error", "error": "asterisk_unavailable", "detail": str(e)}
         except LlmUnavailableError as e:
-            metrics.llm_result(_llm_model(), "error")
+            # Durée/statut LLM mesurés par l'adaptateur OllamaLLM (point de
+            # passage commun) : les recompter ici compterait deux fois l'échec.
             metrics.tool_result(tool, "llm_unavailable")
             audit_log("tool_call", actor=actor, tool=tool, outcome="error",
                       client_id=client_id, params=params, detail=str(e), request_id=rid)
@@ -309,15 +310,15 @@ async def llm_chat(
                 "detail": f"le prompt dépasse {MAX_PROMPT_CHARS} caractères"}
 
     async def work():
-        with metrics.llm_timer(_llm_model()):
-            result = await LlmChatUseCase(_gateway, _llm, _sanitizer).execute(
-                prompt,
-                system_prompt=system_prompt,
-                context=context,
-                max_tokens=max_tokens,
-                history=history,
-            )
-        metrics.llm_result(_llm_model(), "success")
+        # Durée/statut LLM mesurés par l'adaptateur OllamaLLM lui-même :
+        # mesurer ici aussi compterait deux fois le même appel.
+        result = await LlmChatUseCase(_gateway, _llm, _sanitizer).execute(
+            prompt,
+            system_prompt=system_prompt,
+            context=context,
+            max_tokens=max_tokens,
+            history=history,
+        )
         return {"reply": result["reply"], "model": _llm_model(),
                 "context_length": result["context_length"]}
 

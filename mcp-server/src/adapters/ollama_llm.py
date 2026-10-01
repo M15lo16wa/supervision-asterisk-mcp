@@ -30,6 +30,7 @@ import httpx
 
 from src.domain.exceptions import LlmUnavailableError
 from src.domain.ports import LanguageModel
+from src.observability import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -146,17 +147,28 @@ class OllamaLLM(LanguageModel):
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> str:
-        api = await self._resolve_api()
-        payload = self._payload(prompt, history, system_prompt, temperature, max_tokens, stream=False, api=api)
-        endpoint = "/v1/chat/completions" if api == "openai" else "/api/chat"
+        # Mesure au niveau de l'adaptateur : c'est le point de passage commun
+        # aux deux consommateurs (outil ``llm_chat`` ET pipeline vocal). Mesurer
+        # au call-site ne voyait que ``llm_chat`` — les tours vocaux restaient
+        # donc invisibles dans Prometheus.
+        status = "error"
         try:
-            r = await self._client.post(endpoint, json=payload)
-            r.raise_for_status()
-        except httpx.HTTPError as e:
-            raise LlmUnavailableError(
-                f"LLM injoignable ({self._base_url}): {e}"
-            ) from e
-        return self._extract_content(r.json(), api).strip()
+            with metrics.llm_timer(self.model):
+                api = await self._resolve_api()
+                payload = self._payload(prompt, history, system_prompt, temperature, max_tokens, stream=False, api=api)
+                endpoint = "/v1/chat/completions" if api == "openai" else "/api/chat"
+                try:
+                    r = await self._client.post(endpoint, json=payload)
+                    r.raise_for_status()
+                except httpx.HTTPError as e:
+                    raise LlmUnavailableError(
+                        f"LLM injoignable ({self._base_url}): {e}"
+                    ) from e
+                text = self._extract_content(r.json(), api).strip()
+            status = "success"
+            return text
+        finally:
+            metrics.llm_result(self.model, status)
 
     async def stream_reply(
         self,
@@ -167,41 +179,53 @@ class OllamaLLM(LanguageModel):
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[str]:
-        api = await self._resolve_api()
-        payload = self._payload(prompt, history, system_prompt, temperature, max_tokens, stream=True, api=api)
-        endpoint = "/v1/chat/completions" if api == "openai" else "/api/chat"
+        # Mesure au niveau de l'adaptateur (voir ``reply``) : elle couvre aussi
+        # les tours du pipeline vocal, invisibles depuis le call-site.
+        status = "error"
         try:
-            async with self._client.stream("POST", endpoint, json=payload) as r:
-                r.raise_for_status()
-                async for line in r.aiter_lines():
-                    if not line.strip():
-                        continue
-                    # Le format OpenAI est du SSE : "data: {...}" / "data: [DONE]".
-                    if api == "openai":
-                        if line.startswith("data:"):
-                            line = line[5:].strip()
-                        if not line or line == "[DONE]":
-                            if line == "[DONE]":
+            with metrics.llm_timer(self.model):
+                api = await self._resolve_api()
+                payload = self._payload(prompt, history, system_prompt, temperature, max_tokens, stream=True, api=api)
+                endpoint = "/v1/chat/completions" if api == "openai" else "/api/chat"
+                try:
+                    async with self._client.stream("POST", endpoint, json=payload) as r:
+                        r.raise_for_status()
+                        async for line in r.aiter_lines():
+                            if not line.strip():
+                                continue
+                            # Le format OpenAI est du SSE : "data: {...}" / "data: [DONE]".
+                            if api == "openai":
+                                if line.startswith("data:"):
+                                    line = line[5:].strip()
+                                if not line or line == "[DONE]":
+                                    if line == "[DONE]":
+                                        break
+                                    continue
+                            try:
+                                chunk = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            piece = self._extract_content(chunk, api)
+                            if api == "openai":
+                                # En streaming OpenAI le texte est dans delta, pas message.
+                                choices = chunk.get("choices") or []
+                                if choices:
+                                    piece = (choices[0].get("delta") or {}).get("content", "") or ""
+                            if piece:
+                                yield piece
+                            if api == "ollama" and chunk.get("done"):
                                 break
-                            continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    piece = self._extract_content(chunk, api)
-                    if api == "openai":
-                        # En streaming OpenAI le texte est dans delta, pas message.
-                        choices = chunk.get("choices") or []
-                        if choices:
-                            piece = (choices[0].get("delta") or {}).get("content", "") or ""
-                    if piece:
-                        yield piece
-                    if api == "ollama" and chunk.get("done"):
-                        break
-        except httpx.HTTPError as e:
-            raise LlmUnavailableError(
-                f"LLM injoignable ({self._base_url}): {e}"
-            ) from e
+                except httpx.HTTPError as e:
+                    raise LlmUnavailableError(
+                        f"LLM injoignable ({self._base_url}): {e}"
+                    ) from e
+                status = "success"
+        except GeneratorExit:
+            # Le consommateur a abandonné le flux (appel raccroché en cours).
+            status = "cancelled"
+            raise
+        finally:
+            metrics.llm_result(self.model, status)
 
     async def aclose(self) -> None:
         await self._client.aclose()
