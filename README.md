@@ -95,7 +95,6 @@ docker compose ps
 | Service | URL |
 |---|---|
 | Keycloak | http://localhost:8080 (console `admin` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) |
-| Serveur MCP | http://localhost:8000/mcp |
 | Métriques | http://localhost:8000/metrics |
 
 ### 2. Brancher Asterisk
@@ -139,7 +138,7 @@ Les valeurs ci-dessus sont celles déployées par
 [`asterisk/config/`](asterisk/config/) — **développement uniquement**, à
 changer en production (voir l'avertissement en fin de document).
 
-#### Option B — Bare metal / système (machine distante)
+#### Option B — Au niveau du système
 
 Asterisk est installé au niveau système sur une machine Ubuntu (ou autre).
 Pas de `docker exec` ni de `docker network connect` — la configuration se fait
@@ -319,7 +318,7 @@ lit `ASTERISK_HOST`/`ASTERISK_AMI_USER`/`ASTERISK_AMI_SECRET` de l'environnement
 ou du `.env` racine) :
 
 ```bash
-PYTHONPATH=mcp-server python scripts/live_test_asterisk.py
+PYTHONPATH=mcp-server python scripts/live_test_asterisk.py (facultative)
 ```
 
 </details>
@@ -343,6 +342,12 @@ Comptes de test (realm `asterisk`, mot de passe `admin`) :
 **Via MCP Inspector :**
 
 ```bash
+sudo apt update
+sudo apt install curl -y
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+source ~/.bashrc
+nvm --version
+nvm install 22
 npx @modelcontextprotocol/inspector
 # Transport: Streamable HTTP | URL: http://localhost:8000/mcp
 # Authentication: Bearer Token | Token: <access_token>
@@ -365,7 +370,7 @@ curl -s http://localhost:8000/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_active_channels","arguments":{}}}'
 ```
 
-### 5. Pipeline vocal S2S (optionnel)
+### 5. Pipeline vocal S2S
 
 Nécessite un **Ollama** joignable et les extras `voice`. Deux options pour
 Ollama : le conteneur de la stack `monitoring/` (recommandée, section 6) ou un
@@ -446,7 +451,7 @@ Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
 Grafana charge automatiquement la datasource Prometheus et les dashboards du
 dossier `monitoring/grafana/dashboards/` via provisioning.
 
-**Intégration Keycloak (optionnelle) :** pour que Grafana délègue son
+**Intégration Keycloak :** pour que Grafana délègue son
 authentification au même Keycloak que le reste du système (cohérent avec le
 rapport §6.4), créez un client OIDC `grafana` dans Keycloak (confidentiel,
 redirect URI `http://localhost:3000/login/generic_oauth`), puis dans
@@ -488,45 +493,6 @@ En mode `static` (sans Keycloak), trois jetons opaques suffisent :
 personnalisables via `MCP_STATIC_TOKENS`).
 
 ---
-## Composants externes et stacks additionnelles
-
-Le socle (`docker-compose.yml` racine) n'orchestre que **PostgreSQL +
-Keycloak + serveur MCP**. Deux catégories de briques complètent le système :
-
-### Reste externe (à connecter manuellement)
-
-| Brique | Rôle | Config fournie ici |
-|---|---|---|
-| **Asterisk 20/22** | PBX (AMI/ARI/Stasis) — conteneur Docker **ou** bare metal | `asterisk/config/` (modèles) + `scripts/setup_test_asterisk.sh` (Docker) |
-
-**Conteneur Docker** (même hôte) :
-
-```bash
-docker network connect --alias asterisk supervision-net <nom_conteneur_asterisk>
-./scripts/setup_test_asterisk.sh <nom_conteneur_asterisk>
-```
-
-**Bare metal / système** (machine distante) : configurer manuellement
-`/etc/asterisk/` sur Ubuntu — voir « Option B » dans la section 2 du guide
-d'utilisation.
-
-### Gérées par une stack dédiée (`monitoring/docker-compose.yml`)
-
-| Brique | Rôle | Config fournie ici |
-|---|---|---|
-| **Ollama** | LLM local du pipeline S2S et des prompts superviseur | `monitoring/.env` (`OLLAMA_MODEL`, défaut `qwen2.5:3b-instruct`) |
-| **Prometheus** | collecte des métriques | `monitoring/prometheus/prometheus.yml` |
-| **Grafana** | dashboards | `monitoring/grafana/provisioning/` (datasource + dashboards) |
-
-```bash
-cd monitoring
-cp .env.example .env
-docker compose up -d
-```
-
-Cette stack se rattache au réseau `supervision-net` créé par le socle
-(`external: true` dans `monitoring/docker-compose.yml`) — lancez donc toujours
-le compose racine **avant** celui de `monitoring/`.
 
 ## Architecture
 
