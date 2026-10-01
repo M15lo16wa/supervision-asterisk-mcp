@@ -5,6 +5,10 @@ Serveur **MCP (Model Context Protocol)** qui expose les interfaces **ARI** et
 tickets de taxation (**CDR**), pilotage d'appels **sous contrôle humain
 obligatoire (HITL)**, et assistant vocal **Speech-to-Speech (S2S) 100 % local**.
 
+**12 outils** exposés à l'IA, et tout tourne en local : LLM **llama.cpp**
+(modèle GGUF Qwen2.5, API compatible Ollama/OpenAI), STT **faster-whisper**,
+TTS **Piper** — aucune API tierce, aucun appel sortant vers Internet.
+
 Développement direct sur **FastMCP** + clients **ARI/AMI natifs** (panoramisk) —
 aucune dépendance payante, aucun framework tiers, pas d'OpenAPI/Swagger.
 
@@ -37,7 +41,7 @@ lecture / analyse / pilotage :
 | `get_cdr_report` | Superviseur | — | historique des appels (CDR) |
 | `analyze_call_quality` | Superviseur | — | **MOS** + gigue via RTCP (modèle E, ITU-T G.107) |
 | `get_trunk_utilization` | Superviseur | — | charge des trunks (actifs vs capacité) |
-| `llm_chat` | Superviseur | — ² | prompts au **LLM local (Ollama)**, contexte Asterisk optionnel |
+| `llm_chat` | Superviseur | — ² | prompts au **LLM local** (llama.cpp / Ollama), contexte Asterisk optionnel |
 | `spy_channel` `listen` | Superviseur | — ¹ | écoute discrète (ChanSpy) |
 | `spy_channel` `whisper`/`barge` | Admin | ✅ | audio injecté |
 | `originate_call` | Admin | ✅ | initiation d'appel |
@@ -48,7 +52,7 @@ lecture / analyse / pilotage :
 avertissement sur l'encadrement légal de l'écoute et de l'enregistrement.
 
 ² `llm_chat(prompt, context=["channels","cdr:10","queues","trunks","extensions"], …)`
-interroge Ollama avec le système de prompts de supervision ; les données
+interroge le LLM local avec le système de prompts de supervision ; les données
 Asterisk annexées sont traitées comme **contenu non fiable** (enveloppe
 `DataSanitizer`, jamais comme instruction). Rôle `superviseur` minimum.
 
@@ -58,11 +62,14 @@ CDR captés en temps réel via les événements `Cdr`, MOS estimé depuis
 
 **Pipeline vocal S2S (Module 3)** — `src/voice/`, processus séparé
 (`python -m src.voice.runner`). Audio via **ARI External Media** en `slin16` (RTP
-bidirectionnel), endpointing **VAD**, **faster-whisper** (STT), **Ollama**
-(LLM local, par défaut *Qwen2.5-3B-Instruct*, streamé), **Piper** (TTS, phrase
-par phrase). Budget de latence **1–1,5 s** (`LATENCY_BUDGET_MS`) : l'audio de
+bidirectionnel), endpointing **VAD** (`VAD_ENERGY_THRESHOLD`), **faster-whisper**
+(STT), **llama.cpp** (LLM local, par défaut *Qwen2.5-0.5B-Instruct*, streamé),
+**Piper** (TTS, phrase par phrase). Budget de latence `LATENCY_BUDGET_MS`
+(**20 000 ms** en CPU — la cible produit 1–1,5 s suppose un GPU) : l'audio de
 réponse démarre à la première phrase, chaque tour est chronométré et
-`within_budget` signale les dépassements. Sans LiveKit ni API tierce.
+`within_budget` signale les dépassements. Un log `vad-diag` (une fois par
+seconde) expose le niveau RMS reçu pour diagnostiquer un canal muet. Sans
+LiveKit ni API tierce.
 
 **Observabilité** — endpoint `GET /metrics` (Prometheus) sur le serveur MCP et le
 pipeline vocal ; `res_prometheus` côté Asterisk (scrapé par Prometheus via
@@ -70,9 +77,17 @@ pipeline vocal ; `res_prometheus` côté Asterisk (scrapé par Prometheus via
 « Supervision Asterisk MCP » provisionné (`monitoring/grafana/`) — MCP, voix,
 Asterisk et LLM superviseur.
 
-**Tests** — `pytest` (76) sur doublures en mémoire : RBAC, sanitizer, HITL
+Chaque processus exporte **ses propres** compteurs (étiquette `instance`) :
+`sum()` agrège, `max()` est requis pour les jaunes partagées. Les métriques LLM
+(`mcp_llm_calls_total`, `mcp_llm_duration_seconds`) sont enregistrées **par
+l'adaptateur `OllamaLLM`**, seul point de passage commun à `llm_chat` *et* au
+pipeline vocal — les deux instances remontent donc. Les panneaux *stat* de
+Grafana lisent `$__range` (la plage sélectionnée) et non une fenêtre figée.
+
+**Tests** — `pytest` (**81**) sur doublures en mémoire : RBAC, sanitizer, HITL
 (accept/decline/cancel), cas d'usage bloquants, journal d'audit, métriques,
-parsing AMI, avertissement légal, VAD, budget de latence, outil `llm_chat`.
+parsing AMI, avertissement légal, VAD, budget de latence, outil `llm_chat`,
+mesures LLM de l'adaptateur (succès / erreur / flux annulé).
 Charge : scénario **SIPp** jusqu'à 50 canaux dans [`loadtest/`](loadtest/).
 
 Schémas JSON des outils : [`docs/tool-schemas.json`](docs/tool-schemas.json)
@@ -95,13 +110,23 @@ docker compose ps
 | Service | URL |
 |---|---|
 | Keycloak | http://localhost:8080 (console `admin` / `KC_BOOTSTRAP_ADMIN_PASSWORD`) |
+| Serveur MCP | http://localhost:8000/mcp (Streamable HTTP, Bearer JWT) |
 | Métriques | http://localhost:8000/metrics |
 
 ### 2. Brancher Asterisk
 
 Asterisk peut tourner dans un **conteneur Docker** (option A) ou être installé
-**au niveau système** sur une machine distante (option B, bare metal). Dans les
-deux cas, le serveur MCP se connecte via AMI (port 5038) et ARI (port 8088).
+**au niveau système** sur la machine hôte (option B, bare metal). Dans les deux
+cas, le serveur MCP se connecte via AMI (port 5038) et ARI (port 8088).
+
+> **Configuration livrée : l'option B (bare metal).** Le `.env` vise
+> `ASTERISK_HOST=host.docker.internal` et
+> `ASTERISK_ARI_BASE_URL=http://host.docker.internal:8088`, et les services
+> `mcp-server` *et* `voice-pipeline` déclarent
+> `extra_hosts: ["host.docker.internal:host-gateway"]`. Cette ligne est
+> **indispensable sous Linux** : sans elle `host.docker.internal` ne résout pas
+> et le pipeline vocal plante au démarrage sur l'ARI. En option A, remettez
+> `asterisk` + l'alias réseau et retirez `extra_hosts`.
 
 #### Option A — Conteneur Docker (même hôte)
 
@@ -372,20 +397,21 @@ curl -s http://localhost:8000/mcp \
 
 ### 5. Pipeline vocal S2S
 
-Nécessite un **Ollama** joignable et les extras `voice`. Deux options pour
-Ollama : le conteneur de la stack `monitoring/` (recommandée, section 6) ou un
-conteneur externe joint au réseau. Dans les deux cas, il doit être résolvable
-sous le nom `ollama` sur `supervision-net`.
+Nécessite un **serveur LLM local joignable** et les extras `voice`. Le serveur
+par défaut est **llama.cpp** (stack `monitoring/`), publié sous l'alias réseau
+`ollama` pour ne changer aucune variable existante. L'adaptateur `OllamaLLM`
+détecte l'API automatiquement : `/api/chat` (Ollama) ou `/v1/chat/completions`
+(llama.cpp, OpenAI) — il faut donc juste une URL et un modèle joignables.
 
 ```bash
-# a) Ollama de la stack monitoring -> déjà sur supervision-net avec l'alias `ollama`
-#    (Ollama externe -> docker network connect --alias ollama supervision-net <conteneur_ollama>)
-#    Stack monitoring : cd monitoring && cp .env.example .env && docker compose up -d ollama
+# a) télécharger le modèle GGUF (~400 Mo) dans monitoring/models/model.gguf
+./scripts/download_llm_model.sh 0.5b            # variante 3b : ~2 Go
 
-# b) télécharger le modèle utilisé par la voix (qwen2.5:3b-instruct)
-./scripts/ollama_pull.sh supervision-ollama
+# b) démarrer llama.cpp (déjà sur supervision-net, alias `ollama`)
+cd monitoring && cp .env.example .env && docker compose up -d llama-cpp
 
-# c) lancer le pipeline via le profil `voice` du compose racine
+# c) revenir à la racine et lancer le pipeline via le profil `voice`
+cd ..
 #    (build Dockerfile.voice : faster-whisper + Piper + voix française)
 docker compose --profile voice up -d --build voice-pipeline
 docker compose logs -f voice-pipeline
@@ -398,13 +424,31 @@ ses métriques sur `:${VOICE_METRICS_PORT:-9092}/metrics`. Sans le profil
 
 Côté Asterisk, le dialplan `700 => Stasis(mcp-voice)` route l'appel vers le
 pipeline. Le runner doit être **résolvable sous le nom `voice-pipeline`** sur
-`supervision-net` pour que le job Prometheus correspondant soit « UP » :
-déployez-le dans un conteneur nommé `voice-pipeline` (ou joint avec cet alias),
-sinon ce job reste simplement « down » sans impacter les autres.
+`supervision-net` pour que le job Prometheus correspondant soit « UP » — le
+service le déclare déjà via `networks.supervision-net.aliases`. À défaut, ce
+job reste « down » sans impacter les autres.
+
+> Un modèle à froid met ~200 s à charger : `LLM_TIMEOUT_S` vaut **300 s** par
+> défaut et le volume `monitoring/models/` persiste le GGUF entre les
+> redémarrages. Pour éviter ce premier tour lent, préchauffez avec
+> `docker compose logs -f llama-cpp` après un démarrage à froid.
+
+**Tester sans softphone** — `701` est un écho (valide le RTP aller/retour),
+`700` est l'assistant vocal :
+
+```bash
+asterisk -rx "channel originate Local/700@internal application Playback demo-thanks&demo-instruct"
+docker logs -f supervision-voice-pipeline | grep -E 'turn|vad-diag'
+```
+
+`vad-diag` affiche `frames / avg_rms / max_rms / seuil` une fois par seconde :
+`avg_rms=0` → aucun audio n'arrive (micro ou routage RTP) ; `0 < avg_rms <
+seuil` → audio présent mais sous `VAD_ENERGY_THRESHOLD` ; sinon le défaut est
+en aval (mélange du pont, transcodage).
 
 ### 6. Observabilité — Ollama, Prometheus, Grafana
 
-Ces trois services sont orchestrés par une stack **dédiée et autonome**,
+Ces quatre services sont orchestrés par une stack **dédiée et autonome**,
 séparée du socle (`monitoring/docker-compose.yml`), mais rattachée au même
 réseau Docker `supervision-net`.
 
@@ -417,19 +461,24 @@ docker compose ps
 
 | Service | URL |
 |---|---|
-| Ollama | http://localhost:11434 |
+| llama.cpp (alias `ollama`) | http://localhost:11434/health |
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 (admin / `GRAFANA_ADMIN_PASSWORD`) |
 
 Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
-- `asterisk:8088` — `res_prometheus`, Basic Auth `prometheus` / `ASTERISK_METRICS_PASSWORD`
-  (le mot de passe de `monitoring/.env` doit être identique à celui d'Asterisk :
-  `asterisk/config/prometheus.conf` — voir section 2) ;
+- `host.docker.internal:8088` — `res_prometheus` d'Asterisk (**bare metal**,
+  déclaré en `extra_hosts`/`host-gateway`), Basic Auth `prometheus` /
+  `ASTERISK_METRICS_PASSWORD` (le mot de passe de `monitoring/.env` doit être
+  identique à celui d'Asterisk : `asterisk/config/prometheus.conf`, cf. section 2) ;
 - `mcp-server:8000` — `/metrics` exposé par le serveur MCP (conteneur du compose racine) ;
-- `ollama:11434` — métriques natives d'Ollama (alias `ollama` déjà déclaré dans
-  `monitoring/docker-compose.yml`) ;
-- `voice-pipeline:9092` — pipeline vocal S2S (cible UP seulement si le runner est
-  résolvable sous le nom `voice-pipeline`, cf. section 5).
+- `voice-pipeline:9092` — pipeline vocal S2S (cible UP seulement si l'alias
+  `voice-pipeline` est déclaré, cf. section 5).
+
+> **Pas de job pour llama.cpp** : ce serveur n'expose pas `/metrics` au format
+> Prometheus. Son usage se lit via `mcp_llm_calls_total` et
+> `mcp_llm_duration_seconds`, enregistrés par l'adaptateur LLM. Pour repasser à
+> un Asterisk en conteneur, remettez la cible `asterisk:8088` et l'alias réseau
+> (voir le commentaire détaillé dans `monitoring/prometheus/prometheus.yml`).
 
 > **Résolution de noms** : les cibles `asterisk` et `ollama` sont des *aliases*
 > Docker sur `supervision-net`. L'alias `ollama` est déclaré dans le compose de
@@ -449,7 +498,16 @@ Prometheus scrute automatiquement (`monitoring/prometheus/prometheus.yml`) :
 > (défauts dans `.env.example`).
 
 Grafana charge automatiquement la datasource Prometheus et les dashboards du
-dossier `monitoring/grafana/dashboards/` via provisioning.
+dossier `monitoring/grafana/dashboards/` via provisioning (relecture :
+`docker compose restart grafana`).
+
+Le dashboard « Supervision Asterisk MCP » regroupe les panneaux en 4 sections :
+**Serveur MCP**, **Pipeline vocal S2S**, **Asterisk & Ollama**, **LLM
+superviseur**. Les panneaux *stat*/*gauge* interrogent `$__range` : changer la
+plage temporelle dans Grafana change donc bien les valeurs affichées. Les
+*timeseries* gardent une fenêtre glissante `[5m]` et affichent 0 tant qu'aucun
+événement n'est survenu dans les 5 dernières minutes — c'est le comportement
+attendu d'un taux, pas une panne de collecte.
 
 **Intégration Keycloak :** pour que Grafana délègue son
 authentification au même Keycloak que le reste du système (cohérent avec le

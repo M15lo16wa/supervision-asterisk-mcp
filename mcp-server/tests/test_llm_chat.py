@@ -1,4 +1,5 @@
 """Outil superviseur llm_chat : use case, RBAC, contexte, HITL, métriques."""
+import httpx
 import pytest
 from fastmcp.server.elicitation import DeclinedElicitation
 
@@ -13,6 +14,8 @@ from tests.fakes import (
     FakeToken,
     PassthroughSanitizer,
     RecordingLLM,
+    StubLLMTransport,
+    measuring_llm,
     sample_channel,
 )
 
@@ -114,14 +117,30 @@ async def test_llm_chat_hitl_all_mode_declines(_wire, monkeypatch):
 
 
 async def test_llm_chat_reports_ollama_unavailable(_wire, monkeypatch):
+    # La mesure appartient à l'adaptateur : on le met donc dans la chaîne.
     before = _val(metrics.LLM_CALLS, model="fake-model", status="error")
-    monkeypatch.setattr(tools, "_llm", FailingLLM())
+    monkeypatch.setattr(
+        tools,
+        "_llm",
+        measuring_llm(transport=StubLLMTransport(post_error=httpx.ConnectError("panne"))),
+    )
     out = await tools.llm_chat("bonjour", _Ctx(), token=FakeToken(["superviseur"]))
     assert out["error"] == "llm_unavailable"
     assert _val(metrics.LLM_CALLS, model="fake-model", status="error") == before + 1
 
 
-async def test_llm_chat_counts_success_metric(_wire):
+async def test_llm_chat_counts_success_metric(_wire, monkeypatch):
     before = _val(metrics.LLM_CALLS, model="fake-model", status="success")
-    await tools.llm_chat("bonjour", _Ctx(), token=FakeToken(["superviseur"]))
+    monkeypatch.setattr(
+        tools,
+        "_llm",
+        measuring_llm(
+            transport=StubLLMTransport(
+                payload={"choices": [{"message": {"content": "réponse superviseur"}}]}
+            )
+        ),
+    )
+    out = await tools.llm_chat("bonjour", _Ctx(), token=FakeToken(["superviseur"]))
+    assert out["status"] == "success"
+    assert out["reply"] == "réponse superviseur"
     assert _val(metrics.LLM_CALLS, model="fake-model", status="success") == before + 1

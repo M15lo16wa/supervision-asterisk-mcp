@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from src.adapters.ollama_llm import OllamaLLM
 from src.domain.entities import (
     CallDetailRecord,
     CallQuality,
@@ -176,3 +177,74 @@ class FailingLLM(LanguageModel):
 
     async def reply(self, prompt, history=None, *, system_prompt=None, temperature=None, max_tokens=None) -> str:
         raise LlmUnavailableError("ollama injoignable (faux)")
+
+
+# ── vrai adaptateur, sans réseau ─────────────────────────────────────────────
+# Les métriques LLM (durée + statut) sont portées par OllamaLLM lui-même :
+# pour les tester il faut donc passer par l'adaptateur réel, mais sans HTTP.
+class _StubJsonResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _StubStreamResponse:
+    def __init__(self, lines, error):
+        self._lines, self._error = list(lines), error
+
+    def raise_for_status(self) -> None:
+        if self._error is not None:
+            raise self._error
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+
+class _StubStreamContext:
+    def __init__(self, response):
+        self._response = response
+
+    async def __aenter__(self):
+        return self._response
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class StubLLMTransport:
+    """Remplace le ``httpx.AsyncClient`` d'OllamaLLM (POST + stream)."""
+
+    def __init__(self, *, payload=None, post_error=None, lines=(), stream_error=None):
+        self.payload = payload
+        self.post_error = post_error
+        self.lines = lines
+        self.stream_error = stream_error
+
+    async def post(self, endpoint, json=None):
+        if self.post_error is not None:
+            raise self.post_error
+        return _StubJsonResponse(self.payload)
+
+    def stream(self, method, endpoint, json=None):
+        return _StubStreamContext(_StubStreamResponse(self.lines, self.stream_error))
+
+    async def aclose(self):
+        return None
+
+
+def measuring_llm(model="fake-model", transport=None) -> OllamaLLM:
+    """Vrai :class:`OllamaLLM` branché sur un transport de test.
+
+    ``api="openai"`` fige la détection d'API : pas de probe HTTP, et le chemin
+    exécuté est celui de production.
+    """
+    llm = OllamaLLM("http://llm.test:11434", model, "système de test", api="openai")
+    if transport is not None:
+        llm._client = transport
+    return llm
