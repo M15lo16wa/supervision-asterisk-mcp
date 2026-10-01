@@ -35,9 +35,13 @@ scrape_configs:
   # ASTERISK_METRICS_PASSWORD (monitoring/.env) en fichier, via le secret
   # `asterisk_metrics_password`. Elle doit correspondre au mot de passe
   # configuré dans asterisk/config/prometheus.conf.
-  # Prometheus n'expanse pas ${VAR} non plus dans static_configs : le nom réseau
-  # est donc en dur. Si le conteneur Asterisk est renommé, corriger ici et dans
-  # ASTERISK_HOST (.env racine) : c'est le même nom réseau.
+  # Prometheus n'expanse pas ${VAR} dans static_configs : l'hôte est donc en dur.
+  # Cible bare metal : Asterisk tourne sur la machine hôte, le conteneur
+  # Prometheus l'atteint via `host.docker.internal`, déclaré en `extra_hosts`
+  # dans monitoring/docker-compose.yml (host-gateway).
+  # Si vous revenez à Asterisk en conteneur, remettez `asterisk:8088` ET
+  # retirez extra_hosts, en ajoutant l'alias réseau :
+  #   docker network connect --alias asterisk supervision-net <conteneur>
   - job_name: asterisk
     metrics_path: /metrics
     scheme: http
@@ -46,7 +50,7 @@ scrape_configs:
       username: prometheus
       password_file: /run/secrets/asterisk_metrics_password
     static_configs:
-      - targets: ["asterisk-server:8088"]
+      - targets: ["host.docker.internal:8088"]
 
   # Ollama n'expose PAS /metrics au format Prometheus (404 sur /api/tags only) :
   # son usage se suit via le journal du serveur MCP (mcp_llm_calls_total).

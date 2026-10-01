@@ -25,7 +25,7 @@ COPY src/ ./src/
 
 # Les modèles sont cuits dans l'image : un volume monté sur /models ne peut plus
 # les masquer. Tout échec de téléchargement fait échouer le build.
-ARG STT_MODEL=base
+ARG STT_MODEL=tiny
 ARG TTS_VOICE=fr_FR-siwis-medium
 RUN set -eux; \
     mkdir -p /models/piper /models/hf; \

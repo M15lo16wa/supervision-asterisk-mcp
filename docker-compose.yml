@@ -97,7 +97,7 @@ services:
       # ~8 s à chaud. D'où 300 s de timeout, pour rester correct même si
       # OLLAMA_KEEP_ALIVE est désactivé. La generation reste bornée.
       LLM_MAX_HISTORY: ${LLM_MAX_HISTORY:-8}
-      LLM_NUM_PRED: ${LLM_NUM_PRED:-256}
+      LLM_NUM_PREDICT: ${LLM_NUM_PREDICT:-256}
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
     volumes:
       - mcp_audit:/app/logs
@@ -122,6 +122,11 @@ services:
     # Module 3 — pipeline vocal S2S (profil `voice` : non démarré par `up -d`
     # par défaut car l'image embarque faster-whisper + Piper, lourds).
     #   docker compose --profile voice up -d --build voice-pipeline
+    #
+    # Le conteneur est nommé `supervision-voice-pipeline` mais l'alias réseau
+    # `voice-pipeline` permet à Prometheus de le résoudre (job `voice-pipeline`
+    # dans monitoring/prometheus/prometheus.yml). Sans cet alias, le job reste
+    # "down" avec l'erreur `lookup voice-pipeline: server misbehaving`.
     build:
       context: ./mcp-server
       dockerfile: Dockerfile.voice
@@ -134,12 +139,14 @@ services:
       ASTERISK_ARI_USER: ${ASTERISK_ARI_USER:-mcp_ari}
       ASTERISK_ARI_PASSWORD: ${ASTERISK_ARI_PASSWORD:-changeme_ari}
       ASTERISK_ARI_APP: ${ASTERISK_ARI_APP:-mcp-voice}
+      # llama.cpp server (alias `ollama` sur supervision-net) — API compatible.
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b-instruct}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:0.5b-instruct}
       # Un modèle LLM à froid met ~200 s à se charger : le timeout doit le couvrir.
       LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-300}
       # `small` = ~14 s/tour en CPU (RTF 2.6) : réservé au GPU. `base` = ~2.3 s.
-      STT_MODEL: ${STT_MODEL:-base}
+      # `tiny` = ~1.3 s : plus léger, pour systèmes à faibles ressources.
+      STT_MODEL: ${STT_MODEL:-tiny}
       STT_DEVICE: ${STT_DEVICE:-cpu}
       TTS_VOICE: ${TTS_VOICE:-fr_FR-siwis-medium}
       # Adresse RTP annoncée à Asterisk. 0.0.0.0 => IP du conteneur déduite
@@ -170,6 +177,11 @@ services:
       retries: 3
       start_period: 60s
     restart: unless-stopped
+    # Résolution du host depuis le conteneur (Asterisk bare-metal sur l'hôte).
+    # Sans cette entrée, `host.docker.internal` ne résout pas sous Linux et le
+    # pipeline crash au démarrage (ClientConnectorDNSError sur l'ARI).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       supervision-net:
         aliases:

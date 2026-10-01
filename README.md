@@ -70,7 +70,7 @@ pipeline vocal ; `res_prometheus` côté Asterisk (scrapé par Prometheus via
 « Supervision Asterisk MCP » provisionné (`monitoring/grafana/`) — MCP, voix,
 Asterisk et LLM superviseur.
 
-**Tests** — `pytest` (69) sur doublures en mémoire : RBAC, sanitizer, HITL
+**Tests** — `pytest` (76) sur doublures en mémoire : RBAC, sanitizer, HITL
 (accept/decline/cancel), cas d'usage bloquants, journal d'audit, métriques,
 parsing AMI, avertissement légal, VAD, budget de latence, outil `llm_chat`.
 Charge : scénario **SIPp** jusqu'à 50 canaux dans [`loadtest/`](loadtest/).
@@ -145,6 +145,38 @@ Asterisk est installé au niveau système sur une machine Ubuntu (ou autre).
 Pas de `docker exec` ni de `docker network connect` — la configuration se fait
 directement sur `/etc/asterisk/` et le serveur MCP rejoint Asterisk par son
 IP.
+
+**Voie recommandée — un seul script :**
+
+```bash
+sudo ./scripts/provision_asterisk.sh --dry-run     # 1. prévisualiser (n'écrit rien)
+sudo ./scripts/provision_asterisk.sh               # 2. appliquer
+```
+
+Le script installe Asterisk si absent, rend les modèles `asterisk/config/*.conf`
+(placeholders `{{...}}` → secrets du `.env`), corrige l'ACL AMI, peuple le
+contexte `mcp-internal`, démarre le service et vérifie AMI/ARI. Il est
+**idempotent** (rejouable sans effet de bord) et **non destructif**
+(`/etc/asterisk` est sauvegardé avant toute écriture réelle).
+
+**Secrets** — identiques à ceux du `.env`, jamais recopiés à la main :
+`ASTERISK_AMI_SECRET`, `ASTERISK_ARI_PASSWORD` et `ASTERISK_METRICS_PASSWORD`
+sont lus du `.env` ; absents ou en `changeme*`, ils sont générés et **réécrits
+dans le `.env`**. La valeur appliquée à Asterisk est donc exactement celle que
+lisent le serveur MCP et Prometheus — aucun décalage possible.
+
+Variables optionnelles (`.env`) :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `ASTERISK_TRUSTED_CIDR` | `127.0.0.1/8 10/8 172.16/12 192.168/16` | réseaux autorisés pour AMI (ACL) |
+| `ASTERISK_TRUNK_HOST` / `_USER` / `_SECRET` | — | si les 3 sont renseignés, le bloc `[trunk-out]` est livré ; sinon il est retiré du `pjsip.conf` |
+
+Après le provisioning, renseigner `ASTERISK_HOST` dans le `.env` avec l'IP
+joignable par le serveur MCP.
+
+<details>
+<summary>Procédure manuelle (si vous préférez configurer à la main)</summary>
 
 > **Prérequis réseau** : les ports AMI (5038) et ARI (8088) doivent être
 > accessibles depuis la machine hébergeant le serveur MCP.
@@ -289,6 +321,8 @@ ou du `.env` racine) :
 ```bash
 PYTHONPATH=mcp-server python scripts/live_test_asterisk.py
 ```
+
+</details>
 
 ### 3. Obtenir un jeton
 
@@ -445,7 +479,7 @@ cp .env.example .env
 export PYTHONPATH=$(pwd)
 python -m src.main                          # serveur MCP (Modules 1 & 2)
 
-pytest -q                                   # 69 tests
+pytest -q                                   # 76 tests
 ruff check src tests
 ```
 
@@ -525,7 +559,7 @@ mcp-server/
     voice/          external_media.py, audio.py, stt.py, llm.py, tts.py,
                     pipeline.py, runner.py
     config.py, main.py
-  tests/            69 tests (pytest)
+  tests/            76 tests (pytest)
   Dockerfile, Dockerfile.voice, pyproject.toml
 asterisk/config/    pjsip, extensions, manager, ari, queues, cdr_manager,
                     prometheus, http, rtp, modules
@@ -598,3 +632,40 @@ AMI/ARI `ASTERISK_AMI_SECRET`/`ASTERISK_ARI_PASSWORD`,
 `.env`, `asterisk/config/*.conf` et `monitoring/.env`. Activer **HTTPS**,
 remplacer `start-dev` par `start` pour Keycloak, restreindre l'accès réseau à
 `/metrics` et au journal d'audit.
+
+---
+
+## Documentation de campagne
+
+| Document | Contenu |
+| --- | --- |
+| [`docs/plan-test-e2e.md`](docs/plan-test-e2e.md) | Plan de test en 11 phases et matrice de couverture des 12 outils |
+| [`docs/rapport-test-e2e.md`](docs/rapport-test-e2e.md) | Résultats réels de la campagne, 12 défauts trouvés, limites assumées |
+| [`docs/sip-accounts.md`](docs/sip-accounts.md) | Identifiants et réglages des postes PJSIP pour softphone |
+
+Scripts associés :
+
+- `./scripts/provision_asterisk.sh` — installe et déploie Asterisk sur l'hôte
+  (`--dry-run`, `--yes`, `--force`), idempotent.
+- `./scripts/create_pjsip_accounts.sh` — génère les postes PJSIP, leurs hints et
+  `docs/sip-accounts.md`. Idempotent : les mots de passe déjà attribués sont
+  conservés, donc relancer ne casse pas un softphone configuré.
+
+### Rejouer la campagne
+
+```bash
+# tests unitaires (Python 3.8 de l'hôte : à exécuter dans le conteneur)
+docker compose exec -T mcp-server sh -c 'cd /app && python -m pytest -q'
+
+# parcours fonctionnel complet (HITL, AMI, RBAC, files)
+docker compose exec -T mcp-server sh -c 'cd /app && \
+  MCP_URL=http://127.0.0.1:8000/mcp \
+  KEYCLOAK_PUBLIC_URL=http://keycloak:8080 \
+  python scripts/e2e_functional.py'
+```
+
+> Les jetons Keycloak expirent au bout de **5 minutes** : tout script de campagne
+> doit les renouveler. Exécuté dans le conteneur, `e2e_functional.py` doit
+> pointer `KEYCLOAK_PUBLIC_URL` sur `http://keycloak:8080`, car le serveur MCP
+> accepte deux issuers (URL publique et URL interne Docker) et le `iss` du jeton
+> dépend de l'URL par laquelle le client a joint Keycloak.
